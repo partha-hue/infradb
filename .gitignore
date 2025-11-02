@@ -1,0 +1,55 @@
+# Python
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Django
+*.log
+backend/db.sqlite3
+backend/db.sqlite3-journal
+backend/media
+backend/staticfiles
+backend/logs/
+
+# Environment
+.env
+.venv/
+venv/
+ENV/
+env/
+
+# Node modules (if frontend uses Node)
+node_modules/
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database backups
+*.sqlite3
+backend/sample_db.sqlite3
+
+# Build files
+*.map
+
+# Empty files
+backend/d
+backend/DGggg
+backend/f
+backend/frb
+backend/hk
+backend/nm
+backend/pa
+backend/partha
