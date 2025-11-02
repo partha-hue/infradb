@@ -1,14 +1,14 @@
 // src/services/api.js
 import axios from "axios";
 
-// Use environment variable or fallback to production URL
-const baseURL = import.meta.env.VITE_API_URL || "https://infradb-backend.onrender.com/api";
+// IMPORTANT: Use environment variable for production
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://infradb-backend.onrender.com/api";
 
-console.log("🔗 API Base URL:", baseURL); // Debug log to verify
+console.log("🔗 API connecting to:", API_BASE_URL);
 
 // Base API instance
 const API = axios.create({
-  baseURL: baseURL,
+  baseURL: API_BASE_URL,
   headers: {
     "Content-Type": "application/json",
   },
@@ -21,17 +21,15 @@ export const fetchSchema = () => API.get("/schema/");
 export const fetchHistory = () => API.get("/queries/history/");
 
 // Run SQL query (supports single or multiple statements)
-export const runQuery = (sql) =>
-  API.post("/queries/run/", { query: sql });
+export const runQuery = (sql) => API.post("/queries/run/", { query: sql });
 
 // Explain query (optional)
-export const explainQuery = (sql) =>
-  API.post("/queries/explain/", { query: sql });
+export const explainQuery = (sql) => API.post("/queries/explain/", { query: sql });
 
 // Save query (optional)
-export const saveQuery = (payload) =>
-  API.post("/queries/save/", payload);
+export const saveQuery = (payload) => API.post("/queries/save/", payload);
 
 // AI-assisted query suggestion (optional)
-export const aiSuggest = (description) =>
-  API.post("/ai/query_suggest/", { description });
+export const aiSuggest = (description) => API.post("/ai/query_suggest/", { description });
+
+export default API;
