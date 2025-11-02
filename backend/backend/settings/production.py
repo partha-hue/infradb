@@ -1,20 +1,17 @@
 # settings/production.py
 from .base import *
+import dj_database_url
 
 DEBUG = False
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
 
-# PostgreSQL for production
+# Database - Use Render's DATABASE_URL
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME', 'infradb'),
-        'USER': os.environ.get('DB_USER', 'postgres'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
-        'PORT': os.environ.get('DB_PORT', '5432'),
-    }
+    'default': dj_database_url.config(
+        default=os.environ.get('DATABASE_URL'),
+        conn_max_age=600
+    )
 }
 
 # Security settings
@@ -28,4 +25,11 @@ SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True
 
+# CORS settings for frontend
+CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
+
 SECRET_KEY = os.environ.get('SECRET_KEY')
+
+# Static files
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_URL = '/static/'
