@@ -1,10 +1,10 @@
 // src/services/api.js
 import axios from "axios";
 
-// IMPORTANT: Use environment variable for production
+// Use production backend URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || "https://infradb-backend.onrender.com/api";
 
-console.log("🔗 API connecting to:", API_BASE_URL);
+console.log("🔗 API Base URL:", API_BASE_URL);
 
 // Base API instance
 const API = axios.create({
