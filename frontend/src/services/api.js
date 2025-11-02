@@ -4,6 +4,8 @@ import axios from "axios";
 // Use environment variable or fallback to production URL
 const baseURL = import.meta.env.VITE_API_URL || "https://infradb-backend.onrender.com/api";
 
+console.log("🔗 API Base URL:", baseURL); // Debug log to verify
+
 // Base API instance
 const API = axios.create({
   baseURL: baseURL,
@@ -32,4 +34,4 @@ export const saveQuery = (payload) =>
 
 // AI-assisted query suggestion (optional)
 export const aiSuggest = (description) =>
-  API.post("/queries/ai_suggest/", { description });
+  API.post("/ai/query_suggest/", { description });
