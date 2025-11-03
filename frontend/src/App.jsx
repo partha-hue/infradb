@@ -77,7 +77,7 @@ import {
   ComposedChart,
 } from "recharts";
 
-const BASE = "http://127.0.0.1:8000/api";
+const BASE = import.meta.env.VITE_API_URL || "https://infradb-backend.onrender.com/api";
 
 const defaultSettings = {
   editorFontSize: 14,
