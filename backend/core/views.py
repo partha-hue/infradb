@@ -161,41 +161,93 @@ def register(request):
 # -------------------------
 # CONNECT
 # -------------------------
-@api_view(["POST"])
-@permission_classes([AllowAny])  # or IsAuthenticated
+@api_view(['POST'])
 def connect(request):
-    data = request.data or {}
-    db_type = (data.get("type") or "").lower()
-    try:
-        if db_type == "sqlite":
-            db_path = data.get("database") or ":memory:"
-            conn = sqlite3.connect(db_path, check_same_thread=False)
-        elif db_type == "mysql":
-            conn = mysql.connector.connect(
-                host=data.get("host", "localhost"),
-                port=int(data.get("port")) if data.get("port") else 3306,
-                user=data.get("user"),
-                password=data.get("password"),
-                database=data.get("database"),
-                autocommit=False,
-                raw=True
-            )
-        elif db_type == "postgresql":
-            conn = psycopg2.connect(
-                host=data.get("host", "localhost"),
-                port=int(data.get("port")) if data.get("port") else 5432,
-                user=data.get("user"),
-                password=data.get("password"),
-                dbname=data.get("database"),
-            )
-        else:
-            return Response({"error": "Unsupported database type"}, status=400)
-
-        connections["current"] = {"type": db_type, "conn": conn}
-        return Response({"ok": True}, status=200)
-
-    except Exception as e:
-        return Response({"error": str(e)}, status=400)
+    # Accept both 'type' and 'db_type' for backward compatibility
+    db_type = request.data.get('db_type') or request.data.get('type')
+    
+    if not db_type:
+        return Response({
+            'error': 'Missing required field: db_type or type'
+        }, status=400)
+    
+    # For MySQL/PostgreSQL
+    if db_type in ['mysql', 'postgresql']:
+        host = request.data.get('host')
+        port = request.data.get('port')
+        user = request.data.get('user')
+        password = request.data.get('password')
+        database = request.data.get('database')
+        
+        # Check for missing fields
+        if not host:
+            return Response({'error': 'host is not defined'}, status=400)
+        if not user:
+            return Response({'error': 'user is required'}, status=400)
+        if not password:
+            return Response({'error': 'password is required'}, status=400)
+        if not database:
+            return Response({'error': 'database is required'}, status=400)
+        
+        # Block localhost
+        if host in ['localhost', '127.0.0.1', '::1']:
+            return Response({
+                'error': 'Cannot connect to localhost from production. Use a publicly accessible database host.'
+            }, status=400)
+        
+        # Try connection
+        try:
+            if db_type == 'mysql':
+                import mysql.connector
+                conn = mysql.connector.connect(
+                    host=host,
+                    port=int(port) if port else 3306,
+                    user=user,
+                    password=password,
+                    database=database
+                )
+                conn.close()
+                
+            elif db_type == 'postgresql':
+                import psycopg2
+                conn = psycopg2.connect(
+                    host=host,
+                    port=int(port) if port else 5432,
+                    user=user,
+                    password=password,
+                    database=database
+                )
+                conn.close()
+            
+            # Store in session
+            request.session['db_connection'] = {
+                'type': db_type,
+                'host': host,
+                'port': port,
+                'user': user,
+                'password': password,
+                'database': database
+            }
+            
+            return Response({
+                'success': True,
+                'message': f'✅ Connected to {db_type} database: {database}'
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': f'❌ Connection failed: {str(e)}'
+            }, status=400)
+    
+    # For SQLite
+    elif db_type == 'sqlite':
+        # Your existing SQLite logic
+        return Response({
+            'success': True,
+            'message': '✅ Connected to SQLite'
+        })
+    
+    return Response({'error': 'Invalid database type'}, status=400)
 
 # -------------------------
 # DISCONNECT

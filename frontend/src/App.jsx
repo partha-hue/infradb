@@ -373,47 +373,105 @@ export default function App() {
   async function connectDatabaseInteractive() {
     try {
       const creds = { db_type: dbType };
-      // Block localhost for non-SQLite connections
-      if (dbType !== 'sqlite' && (host === 'localhost' || host === '127.0.0.1' || host === '::1')) {
-        alert('⚠️ Localhost connections not supported in production\n\n' +
-          'Please use:\n' +
-          '• SQLite (file-based)\n' +
-          '• Cloud-hosted MySQL/PostgreSQL\n' +
-          '• Demo databases');
-        return;
+
+      // SQLite - simple file-based database
+      if (dbType === 'sqlite') {
+        const dbName = prompt("SQLite database name:", "mydb.db");
+        if (!dbName) {
+          setMessage("⚠️ Database name required");
+          return;
+        }
+        creds.database = dbName;
+        setMessage("Connecting to SQLite...");
+      }
+      // MySQL/PostgreSQL - need full credentials
+      else {
+        setMessage(`Please provide ${dbType.toUpperCase()} credentials...`);
+
+        const hostInput = prompt(
+          `${dbType.toUpperCase()} host:\n(Use public host, not localhost)`,
+          ""
+        );
+
+        if (!hostInput) {
+          setMessage("⚠️ Host is required");
+          return;
+        }
+
+        // Block localhost immediately
+        if (hostInput === 'localhost' || hostInput === '127.0.0.1' || hostInput === '::1') {
+          alert(
+            '⚠️ LOCALHOST NOT SUPPORTED IN PRODUCTION\n\n' +
+            'Your production backend on Render cannot connect to databases on your local computer.\n\n' +
+            '✅ SOLUTIONS:\n' +
+            '1. Use SQLite (select SQLite instead)\n' +
+            '2. Host your database on cloud:\n' +
+            '   • MySQL: PlanetScale, Railway, AWS RDS\n' +
+            '   • PostgreSQL: Render, Railway, Supabase\n' +
+            '3. Use a publicly accessible database host\n\n' +
+            'Example: mydb.us-east-1.rds.amazonaws.com'
+          );
+          setMessage("❌ Localhost connection blocked - use cloud database");
+          return;
+        }
+
+        const portInput = prompt(
+          "Port (press Enter for default):",
+          dbType === "mysql" ? "3306" : "5432"
+        );
+
+        const userInput = prompt("Username:", dbType === "mysql" ? "root" : "postgres");
+
+        const passwordInput = prompt("Password:", "");
+
+        const databaseInput = prompt("Database name:", "");
+
+        if (!databaseInput) {
+          setMessage("⚠️ Database name required");
+          return;
+        }
+
+        creds.host = hostInput.trim();
+        creds.port = portInput || (dbType === "mysql" ? "3306" : "5432");
+        creds.user = userInput || (dbType === "mysql" ? "root" : "postgres");
+        creds.password = passwordInput;
+        creds.database = databaseInput.trim();
+
+        setMessage(`Connecting to ${dbType.toUpperCase()} at ${creds.host}...`);
       }
 
-      else {
-        creds.host = prompt("DB host:", "localhost");
-        creds.port =
-          prompt(
-            "DB port (leave blank default):",
-            dbType === "mysql" ? "3306" : "5432"
-          ) || (dbType === "mysql" ? "3306" : "5432");
-        creds.user = prompt("DB username:", "root");
-        creds.password = prompt("DB password (not saved securely):", "");
-        creds.database = prompt("Database name:", "");
-      }
-      if (!creds.database && dbType !== "sqlite") {
-        setMessage("⚠️ Database name required");
-        return;
-      }
-      setMessage("Connecting...");
+      // Attempt connection
       const res = await axios.post(`${BASE}/connect/`, creds);
-      if (res.status === 200 && (res.data?.ok || true)) {
+
+      // Check for success
+      if (res.status === 200 && (res.data?.success || res.data?.ok || res.data?.message)) {
         setConnected(true);
         setConnectionInfo(creds);
-        setMessage(`✅ Connected (${dbType})`);
+        const successMsg = res.data?.message || `✅ Connected to ${dbType} database`;
+        setMessage(successMsg);
+
+        // Load database schema
         await loadSchema();
       } else {
         setConnected(false);
-        setMessage("❌ Connect failed");
+        setMessage("❌ Connection failed - check credentials");
       }
+
     } catch (err) {
       setConnected(false);
-      setMessage(
-        "❌ Connect error: " + (err?.response?.data?.error || err.message)
-      );
+
+      // Extract error message
+      let errorMsg = "Unknown error";
+      if (err?.response?.data?.error) {
+        errorMsg = err.response.data.error;
+      } else if (err?.response?.data?.message) {
+        errorMsg = err.response.data.message;
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+
+      setMessage(`❌ ${errorMsg}`);
+      console.error("Connection error details:", err.response?.data || err);
     }
   }
 
