@@ -1,4 +1,5 @@
 # backend/core/views.py
+# backend/core/views.py
 import json
 import os
 import sqlite3
@@ -22,6 +23,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 
+from .excel_handler import process_excel
+
 # Load environment variables
 load_dotenv()
 
@@ -31,7 +34,7 @@ if not cohere_api_key:
 
 co = cohere.Client(cohere_api_key)
 
-# Lazy import of Excel handler to avoid immediate import errors
+# Lazy import of Excel handler
 excel_handler = None
 def get_excel_handler():
     global excel_handler
@@ -52,8 +55,6 @@ except Exception:
     QueryHistory = None
     SavedQuery = None
     _HAVE_QUERY_HISTORY_MODEL = False
-
-from .excel_handler import process_excel
 
 # In-memory store for connections
 connections = {}
@@ -103,11 +104,6 @@ def _infer_column_type(values):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def login(request):
-    """
-    JWT Authentication Login
-    Body: {"username": "...", "password": "..."}
-    Returns: {"token": "...", "user": {"username": "...", "role": "admin"|"user"}}
-    """
     username = request.data.get("username")
     password = request.data.get("password")
     
@@ -118,8 +114,6 @@ def login(request):
     
     if user is not None:
         refresh = RefreshToken.for_user(user)
-        
-        # Determine role (you can customize this based on groups/permissions)
         role = "admin" if user.is_superuser or user.is_staff else "user"
         
         return Response({
@@ -138,10 +132,6 @@ def login(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def register(request):
-    """
-    User Registration
-    Body: {"username": "...", "password": "...", "email": "..."}
-    """
     username = request.data.get("username")
     password = request.data.get("password")
     email = request.data.get("email", "")
@@ -159,95 +149,162 @@ def register(request):
         return Response({"error": str(e)}, status=400)
 
 # -------------------------
-# CONNECT
+# CONNECT - MULTI-CLOUD SUPPORT
 # -------------------------
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def connect(request):
+    """Connect to database - supports SQLite, MySQL, PostgreSQL (cloud and local)"""
+    
     # Accept both 'type' and 'db_type' for backward compatibility
     db_type = request.data.get('db_type') or request.data.get('type')
     
     if not db_type:
-        return Response({
-            'error': 'Missing required field: db_type or type'
-        }, status=400)
+        return Response({'error': 'Missing required field: db_type or type'}, status=400)
     
-    # For MySQL/PostgreSQL
-    if db_type in ['mysql', 'postgresql']:
+    print(f"[CONNECT] Database type: {db_type}")
+    
+    # ========== SQLite ==========
+    if db_type == 'sqlite':
+        database = request.data.get('database', 'default.db')
+        
+        db_dir = os.path.join(settings.BASE_DIR, 'user_databases')
+        os.makedirs(db_dir, exist_ok=True)
+        db_path = os.path.join(db_dir, database)
+        
+        try:
+            conn = sqlite3.connect(db_path, check_same_thread=False)
+            conn.execute("SELECT 1")  # Test connection
+            
+            connections["current"] = {"type": "sqlite", "conn": conn}
+            
+            return Response({
+                'success': True,
+                'ok': True,
+                'message': f'✅ Connected to SQLite: {database}',
+                'provider': 'Local SQLite'
+            })
+        except Exception as e:
+            return Response({'error': f'SQLite error: {str(e)}'}, status=400)
+    
+    # ========== MySQL ==========
+    elif db_type == 'mysql':
         host = request.data.get('host')
-        port = request.data.get('port')
+        port = request.data.get('port', 3306)
         user = request.data.get('user')
         password = request.data.get('password')
         database = request.data.get('database')
         
-        # Check for missing fields
-        if not host:
-            return Response({'error': 'host is not defined'}, status=400)
-        if not user:
-            return Response({'error': 'user is required'}, status=400)
-        if not password:
-            return Response({'error': 'password is required'}, status=400)
-        if not database:
-            return Response({'error': 'database is required'}, status=400)
-        
-        # Block localhost
-        if host in ['localhost', '127.0.0.1', '::1']:
+        if not all([host, user, password, database]):
             return Response({
-                'error': 'Cannot connect to localhost from production. Use a publicly accessible database host.'
+                'error': 'MySQL requires: host, user, password, database'
             }, status=400)
         
-        # Try connection
+        # Block localhost in production
+        if host in ['localhost', '127.0.0.1', '::1']:
+            return Response({
+                'error': '⚠️ Localhost not supported in production.\n\n' +
+                        'Use cloud MySQL:\n' +
+                        '• PlanetScale (free tier)\n' +
+                        '• Railway (free $5/month)\n' +
+                        '• AWS RDS, Google Cloud SQL'
+            }, status=400)
+        
         try:
-            if db_type == 'mysql':
-                import mysql.connector
-                conn = mysql.connector.connect(
-                    host=host,
-                    port=int(port) if port else 3306,
-                    user=user,
-                    password=password,
-                    database=database
-                )
-                conn.close()
-                
-            elif db_type == 'postgresql':
-                import psycopg2
-                conn = psycopg2.connect(
-                    host=host,
-                    port=int(port) if port else 5432,
-                    user=user,
-                    password=password,
-                    database=database
-                )
-                conn.close()
+            # Detect cloud provider
+            provider = 'Unknown'
+            if 'planetscale' in host.lower():
+                provider = 'PlanetScale'
+            elif 'railway' in host.lower():
+                provider = 'Railway'
+            elif 'amazonaws' in host.lower():
+                provider = 'AWS RDS'
             
-            # Store in session
-            request.session['db_connection'] = {
-                'type': db_type,
-                'host': host,
-                'port': port,
-                'user': user,
-                'password': password,
-                'database': database
+            conn = mysql.connector.connect(
+                host=host,
+                port=int(port),
+                user=user,
+                password=password,
+                database=database,
+                autocommit=False
+            )
+            
+            connections["current"] = {
+                "type": "mysql",
+                "conn": conn,
+                "provider": provider
             }
             
             return Response({
                 'success': True,
-                'message': f'✅ Connected to {db_type} database: {database}'
+                'ok': True,
+                'message': f'✅ Connected to MySQL: {database}',
+                'provider': provider
             })
             
         except Exception as e:
+            return Response({'error': f'MySQL connection failed: {str(e)}'}, status=400)
+    
+    # ========== PostgreSQL ==========
+    elif db_type == 'postgresql':
+        host = request.data.get('host')
+        port = request.data.get('port', 5432)
+        user = request.data.get('user')
+        password = request.data.get('password')
+        database = request.data.get('database')
+        
+        if not all([host, user, password, database]):
             return Response({
-                'error': f'❌ Connection failed: {str(e)}'
+                'error': 'PostgreSQL requires: host, user, password, database'
             }, status=400)
+        
+        # Block localhost in production
+        if host in ['localhost', '127.0.0.1', '::1']:
+            return Response({
+                'error': '⚠️ Localhost not supported in production.\n\n' +
+                        'Use cloud PostgreSQL:\n' +
+                        '• Render (free tier)\n' +
+                        '• Supabase (free tier)\n' +
+                        '• Railway, Neon, AWS RDS'
+            }, status=400)
+        
+        try:
+            # Detect cloud provider
+            provider = 'Unknown'
+            if 'render' in host.lower():
+                provider = 'Render'
+            elif 'supabase' in host.lower():
+                provider = 'Supabase'
+            elif 'railway' in host.lower():
+                provider = 'Railway'
+            
+            conn = psycopg2.connect(
+                host=host,
+                port=int(port),
+                user=user,
+                password=password,
+                dbname=database
+            )
+            
+            connections["current"] = {
+                "type": "postgresql",
+                "conn": conn,
+                "provider": provider
+            }
+            
+            return Response({
+                'success': True,
+                'ok': True,
+                'message': f'✅ Connected to PostgreSQL: {database}',
+                'provider': provider
+            })
+            
+        except Exception as e:
+            return Response({'error': f'PostgreSQL connection failed: {str(e)}'}, status=400)
     
-    # For SQLite
-    elif db_type == 'sqlite':
-        # Your existing SQLite logic
-        return Response({
-            'success': True,
-            'message': '✅ Connected to SQLite'
-        })
-    
-    return Response({'error': 'Invalid database type'}, status=400)
+    return Response({'error': f'Unsupported database type: {db_type}'}, status=400)
+
+# [REST OF YOUR CODE CONTINUES HERE - disconnect, schema, run_query, etc.]
 
 # -------------------------
 # DISCONNECT
