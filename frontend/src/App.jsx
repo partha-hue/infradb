@@ -372,14 +372,18 @@ export default function App() {
 
   async function connectDatabaseInteractive() {
     try {
-      const creds = { type: dbType };
-      if (dbType === "sqlite") {
-        const path = prompt(
-          "Enter sqlite file path (leave blank to use memory):",
-          ":memory:"
-        );
-        creds.database = path || ":memory:";
-      } else {
+      const creds = { db_type: dbType };
+      // Block localhost for non-SQLite connections
+      if (dbType !== 'sqlite' && (host === 'localhost' || host === '127.0.0.1' || host === '::1')) {
+        alert('⚠️ Localhost connections not supported in production\n\n' +
+          'Please use:\n' +
+          '• SQLite (file-based)\n' +
+          '• Cloud-hosted MySQL/PostgreSQL\n' +
+          '• Demo databases');
+        return;
+      }
+
+      else {
         creds.host = prompt("DB host:", "localhost");
         creds.port =
           prompt(
