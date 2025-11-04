@@ -77,11 +77,14 @@ import {
   ComposedChart,
 } from "recharts";
 
-const BASE = import.meta.env.VITE_API_URL || "https://infradb-backend.onrender.com/api";
+// API URL detection - simple, no hooks needed
+const BASE = import.meta.env.VITE_API_URL ||
+  (typeof window !== 'undefined' && window.electron
+    ? "http://127.0.0.1:8000/api"
+    : "https://infradb-backend.onrender.com/api");
 
-// Debug logging
-
-
+console.log('🌐 API Base URL:', BASE);
+console.log('🖥️ Running in Electron:', !!(typeof window !== 'undefined' && window.electron));
 
 const defaultSettings = {
   editorFontSize: 14,
@@ -177,6 +180,17 @@ export default function App() {
   const [tables, setTables] = useState([]);
   const [tablesInfo, setTablesInfo] = useState([]);
   const [history, setHistory] = useState([]);
+
+  // Connection modal state
+  const [showConnectionModal, setShowConnectionModal] = useState(false);
+  const [connectionFields, setConnectionFields] = useState({
+    database: 'mydb.db',
+    host: '',
+    port: '',
+    user: '',
+    password: ''
+  });
+
 
   // Query performance tracking
   const [queryPerformance, setQueryPerformance] = useState([]);
@@ -376,70 +390,71 @@ export default function App() {
 
   async function connectDatabaseInteractive() {
     try {
-      const creds = { db_type: dbType };
-
       // SQLite - simple file-based database
       if (dbType === 'sqlite') {
-        const dbName = prompt("SQLite database name:", "mydb.db");
-        if (!dbName) {
-          setMessage("⚠️ Database name required");
-          return;
-        }
-        creds.database = dbName;
-        setMessage("Connecting to SQLite...");
+        // Show modal for SQLite database name
+        setConnectionFields({ database: 'mydb.db', host: '', port: '', user: '', password: '' });
+        setShowConnectionModal(true);
+        return; // Modal will handle the connection
       }
       // MySQL/PostgreSQL - need full credentials
       else {
         setMessage(`Please provide ${dbType.toUpperCase()} credentials...`);
 
-        const hostInput = prompt(
-          `${dbType.toUpperCase()} host:\n(Use public host, not localhost)`,
-          ""
-        );
+        // Set default values for MySQL/PostgreSQL
+        setConnectionFields({
+          database: '',
+          host: '',
+          port: dbType === "mysql" ? "3306" : "5432",
+          user: dbType === "mysql" ? "root" : "postgres",
+          password: ''
+        });
+        setShowConnectionModal(true);
+        return; // Modal will handle the connection
+      }
+    } catch (err) {
+      setConnected(false);
+      setMessage(`❌ ${err.message}`);
+      console.error("Connection error:", err);
+    }
+  }
 
-        if (!hostInput) {
+  // Actual connection function (called from modal)
+  async function performConnection(fields) {
+    try {
+      const creds = { db_type: dbType };
+
+      if (dbType === 'sqlite') {
+        if (!fields.database) {
+          setMessage("⚠️ Database name required");
+          return;
+        }
+        creds.database = fields.database;
+        setMessage("Connecting to SQLite...");
+      } else {
+        // Validate required fields
+        if (!fields.host) {
           setMessage("⚠️ Host is required");
           return;
         }
 
-        // Block localhost immediately
-        if (hostInput === 'localhost' || hostInput === '127.0.0.1' || hostInput === '::1') {
-          alert(
-            '⚠️ LOCALHOST NOT SUPPORTED IN PRODUCTION\n\n' +
-            'Your production backend on Render cannot connect to databases on your local computer.\n\n' +
-            '✅ SOLUTIONS:\n' +
-            '1. Use SQLite (select SQLite instead)\n' +
-            '2. Host your database on cloud:\n' +
-            '   • MySQL: PlanetScale, Railway, AWS RDS\n' +
-            '   • PostgreSQL: Render, Railway, Supabase\n' +
-            '3. Use a publicly accessible database host\n\n' +
-            'Example: mydb.us-east-1.rds.amazonaws.com'
-          );
+        // Block localhost
+        if (fields.host === 'localhost' || fields.host === '127.0.0.1' || fields.host === '::1') {
           setMessage("❌ Localhost connection blocked - use cloud database");
+          showToast('⚠️ LOCALHOST NOT SUPPORTED IN PRODUCTION\n\nUse cloud database:\n• MySQL: PlanetScale, Railway\n• PostgreSQL: Render, Supabase', 'warning');
           return;
         }
 
-        const portInput = prompt(
-          "Port (press Enter for default):",
-          dbType === "mysql" ? "3306" : "5432"
-        );
-
-        const userInput = prompt("Username:", dbType === "mysql" ? "root" : "postgres");
-
-        const passwordInput = prompt("Password:", "");
-
-        const databaseInput = prompt("Database name:", "");
-
-        if (!databaseInput) {
+        if (!fields.database) {
           setMessage("⚠️ Database name required");
           return;
         }
 
-        creds.host = hostInput.trim();
-        creds.port = portInput || (dbType === "mysql" ? "3306" : "5432");
-        creds.user = userInput || (dbType === "mysql" ? "root" : "postgres");
-        creds.password = passwordInput;
-        creds.database = databaseInput.trim();
+        creds.host = fields.host.trim();
+        creds.port = fields.port || (dbType === "mysql" ? "3306" : "5432");
+        creds.user = fields.user || (dbType === "mysql" ? "root" : "postgres");
+        creds.password = fields.password;
+        creds.database = fields.database.trim();
 
         setMessage(`Connecting to ${dbType.toUpperCase()} at ${creds.host}...`);
       }
@@ -454,11 +469,25 @@ export default function App() {
         const successMsg = res.data?.message || `✅ Connected to ${dbType} database`;
         setMessage(successMsg);
 
+        // ✅ FIX: Close modal and reset fields
+        setShowConnectionModal(false);
+        setConnectionFields({
+          database: 'mydb.db',
+          host: '',
+          port: '',
+          user: '',
+          password: ''
+        });
+
         // Load database schema
         await loadSchema();
+
+        // ✅ FIX: Show success toast
+        showToast(successMsg, 'success');
       } else {
         setConnected(false);
         setMessage("❌ Connection failed - check credentials");
+        showToast("❌ Connection failed - check credentials", 'error');
       }
     } catch (err) {
       setConnected(false);
@@ -474,9 +503,11 @@ export default function App() {
       }
 
       setMessage(`❌ ${errorMsg}`);
+      showToast(`❌ ${errorMsg}`, 'error');
       console.error("Connection error details:", err.response?.data || err);
     }
   }
+
 
   async function loadSampleDB() {
     try {
@@ -1357,6 +1388,214 @@ export default function App() {
           onClose={() => removeToast(toast.id)}
         />
       ))}
+
+      {/* Toast Notifications */}
+      {toasts.map(toast => (
+        <Toast
+          key={toast.id}
+          message={toast.message}
+          type={toast.type}
+          onClose={() => removeToast(toast.id)}
+        />
+      ))}
+
+      {/* Connection Modal */}
+      {showConnectionModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000
+        }}>
+          <div style={{
+            background: darkMode ? '#1e293b' : '#fff',
+            padding: '32px',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+            minWidth: '400px',
+            maxWidth: '500px',
+            color: darkMode ? '#e6eef6' : '#111'
+          }}>
+            <h2 style={{ marginTop: 0, marginBottom: '24px', fontSize: '20px' }}>
+              {dbType === 'sqlite' ? 'SQLite Database' : `${dbType.toUpperCase()} Connection`}
+            </h2>
+
+            {dbType === 'sqlite' ? (
+              // SQLite form
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+                  Database Name:
+                </label>
+                <input
+                  type="text"
+                  value={connectionFields.database}
+                  onChange={(e) => setConnectionFields({ ...connectionFields, database: e.target.value })}
+                  placeholder="mydb.db"
+                  style={{
+                    marginBottom: '16px',
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: `1px solid ${darkMode ? '#374151' : '#d1d5db'}`,
+                    background: darkMode ? '#0f172a' : '#fff',
+                    color: darkMode ? '#e6eef6' : '#111'
+                  }}
+                  autoFocus
+                />
+              </div>
+            ) : (
+              // MySQL/PostgreSQL form
+              <div>
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+                    Host:
+                  </label>
+                  <input
+                    type="text"
+                    value={connectionFields.host}
+                    onChange={(e) => setConnectionFields({ ...connectionFields, host: e.target.value })}
+                    placeholder="database.example.com"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${darkMode ? '#374151' : '#d1d5db'}`,
+                      background: darkMode ? '#0f172a' : '#fff',
+                      color: darkMode ? '#e6eef6' : '#111'
+                    }}
+                    autoFocus
+                  />
+                  <small style={{ color: darkMode ? '#94a3ad' : '#6b7280', fontSize: '12px' }}>
+                    Use public cloud host (not localhost)
+                  </small>
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+                    Port:
+                  </label>
+                  <input
+                    type="text"
+                    value={connectionFields.port}
+                    onChange={(e) => setConnectionFields({ ...connectionFields, port: e.target.value })}
+                    placeholder={dbType === "mysql" ? "3306" : "5432"}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${darkMode ? '#374151' : '#d1d5db'}`,
+                      background: darkMode ? '#0f172a' : '#fff',
+                      color: darkMode ? '#e6eef6' : '#111'
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+                    Username:
+                  </label>
+                  <input
+                    type="text"
+                    value={connectionFields.user}
+                    onChange={(e) => setConnectionFields({ ...connectionFields, user: e.target.value })}
+                    placeholder={dbType === "mysql" ? "root" : "postgres"}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${darkMode ? '#374151' : '#d1d5db'}`,
+                      background: darkMode ? '#0f172a' : '#fff',
+                      color: darkMode ? '#e6eef6' : '#111'
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+                    Password:
+                  </label>
+                  <input
+                    type="password"
+                    value={connectionFields.password}
+                    onChange={(e) => setConnectionFields({ ...connectionFields, password: e.target.value })}
+                    placeholder="••••••••"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${darkMode ? '#374151' : '#d1d5db'}`,
+                      background: darkMode ? '#0f172a' : '#fff',
+                      color: darkMode ? '#e6eef6' : '#111'
+                    }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+                    Database Name:
+                  </label>
+                  <input
+                    type="text"
+                    value={connectionFields.database}
+                    onChange={(e) => setConnectionFields({ ...connectionFields, database: e.target.value })}
+                    placeholder="mydb"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${darkMode ? '#374151' : '#d1d5db'}`,
+                      background: darkMode ? '#0f172a' : '#fff',
+                      color: darkMode ? '#e6eef6' : '#111'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+              <button
+                onClick={() => performConnection(connectionFields)}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  background: '#10b981',
+                  color: '#fff',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  fontWeight: 600
+                }}
+              >
+                Connect
+              </button>
+              <button
+                onClick={() => setShowConnectionModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '12px 16px',
+                  background: darkMode ? '#374151' : '#e5e7eb',
+                  color: darkMode ? '#e6eef6' : '#111',
+                  borderRadius: 8,
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 14
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Authentication Modal */}
       {showAuthModal && (
