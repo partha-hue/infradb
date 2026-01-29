@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { FaDatabase, FaPlay, FaHistory, FaTable, FaProjectDiagram, FaFileImport, FaSave, FaRobot, FaCog, FaSignOutAlt } from 'react-icons/fa';
-import { connectDB, getSchema, suggestQuery, importData } from './api/dbService';
+import { FaDatabase, FaPlay, FaHistory, FaTable, FaProjectDiagram, FaFileImport, FaSave, FaRobot, FaCog, FaSignOutAlt, FaFlask } from 'react-icons/fa';
+import { connectDB, getSchema, suggestQuery, importData, runQuery as runQueryService } from './api/dbService';
 import { useAuth } from './hooks/useAuth';
 import { useDatabase } from './hooks/useDatabase';
 import axiosInstance from './api/axios';
@@ -102,7 +102,7 @@ function ConnectionDialog({ isOpen, onClose, onConnect }) {
   );
 }
 
-// Schema Panel
+// Sidebar Components
 function SchemaPanel({ schema, loading }) {
   if (loading) return <div className="sidebar-content"><span className="spinner"></span></div>;
   if (!schema || schema.length === 0) {
@@ -111,6 +111,7 @@ function SchemaPanel({ schema, loading }) {
         <div className="empty-state">
           <div className="empty-state-icon">📭</div>
           <div className="empty-state-text">No tables found</div>
+          <div style={{fontSize: '11px', color: '#888', marginTop: '5px'}}>Load Sample DB or import data</div>
         </div>
       </div>
     );
@@ -131,28 +132,16 @@ function SchemaPanel({ schema, loading }) {
   );
 }
 
-// History Panel
 function HistoryPanel({ history, onLoad }) {
   if (!history || history.length === 0) {
-    return (
-      <div className="sidebar-content">
-        <div className="empty-state">
-          <div className="empty-state-icon">📜</div>
-          <div className="empty-state-text">No query history</div>
-        </div>
-      </div>
-    );
+    return <div className="sidebar-content"><div className="empty-state"><div className="empty-state-icon">📜</div><div className="empty-state-text">No history</div></div></div>;
   }
   return (
     <div className="sidebar-content scrollbar">
       {history.map((item, idx) => (
-        <div key={idx} className="history-item" onClick={() => onLoad(item.query)} title={item.query}>
-          <div style={{ fontSize: '11px', color: '#d4d4d4', marginBottom: '4px' }}>
-            {item.query.slice(0, 45)}...
-          </div>
-          <div style={{ fontSize: '10px', color: '#858585' }}>
-            ⏱️ {Math.round(item.execution_time || 0)}ms
-          </div>
+        <div key={idx} className="history-item" onClick={() => onLoad(item.query)}>
+          <div className="history-query">{item.query.slice(0, 60)}...</div>
+          <div className="history-meta">⏱️ {Math.round(item.execution_time || 0)}ms</div>
         </div>
       ))}
     </div>
@@ -162,12 +151,13 @@ function HistoryPanel({ history, onLoad }) {
 // Results Panel
 function ResultsPanel({ results, error }) {
   if (error) return <div className="bottom-content"><div className="error-message">{error}</div></div>;
-  if (!results || results.length === 0) {
-    return <div className="bottom-content"><div className="empty-state"><div className="empty-state-icon">📊</div><div className="empty-state-text">Run a query to see results</div></div></div>;
-  }
+  if (!results) return <div className="bottom-content"><div className="empty-state"><div className="empty-state-icon">📊</div><div className="empty-state-text">Run a query to see results</div></div></div>;
 
-  // Handle case where results might be a direct list or wrapped
   const displayResults = Array.isArray(results) ? results : (results.results || []);
+
+  if (displayResults.length === 0) {
+    return <div className="bottom-content"><div className="empty-state">No results returned</div></div>;
+  }
 
   return (
     <div className="bottom-content scrollbar">
@@ -175,33 +165,21 @@ function ResultsPanel({ results, error }) {
         <div key={idx} className="result-block">
           <div className="result-header">
             <span>{result.message || 'Success'}</span>
-            {result.columns?.length && <span>{result.rows?.length || 0} rows</span>}
+            {result.columns?.length > 0 && <span>{result.rows?.length || 0} rows</span>}
           </div>
           {result.columns && result.columns.length > 0 && (
             <div style={{ overflowX: 'auto' }}>
               <table className="result-table">
                 <thead>
-                  <tr>
-                    {result.columns.map((col, cIdx) => (
-                      <th key={cIdx}>{col}</th>
-                    ))}
-                  </tr>
+                  <tr>{result.columns.map((col, cIdx) => <th key={cIdx}>{col}</th>)}</tr>
                 </thead>
                 <tbody>
                   {result.rows && result.rows.slice(0, 100).map((row, rIdx) => (
-                    <tr key={rIdx}>
-                      {row.map((cell, cIdx) => (
-                        <td key={cIdx}>{cell === null ? 'NULL' : String(cell)}</td>
-                      ))}
-                    </tr>
+                    <tr key={rIdx}>{row.map((cell, cIdx) => <td key={cIdx}>{cell === null ? 'NULL' : String(cell)}</td>)}</tr>
                   ))}
                 </tbody>
               </table>
-              {result.rows && result.rows.length > 100 && (
-                <div style={{ fontSize: '11px', color: '#858585', marginTop: '8px' }}>
-                  Showing 100 of {result.rows.length} rows
-                </div>
-              )}
+              {result.rows?.length > 100 && <div className="table-limit-note">Showing 100 of {result.rows.length} rows</div>}
             </div>
           )}
         </div>
@@ -213,22 +191,26 @@ function ResultsPanel({ results, error }) {
 // Login View
 function LoginView() {
   const { login } = useAuth();
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
     try {
       await login({ username, password });
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div className="dialog-overlay">
-      <div className="dialog-box" style={{ maxWidth: '400px' }}>
+      <div className="dialog-box" style={{ maxWidth: '350px' }}>
         <h2 className="dialog-title">🔑 InfraDB Login</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -240,7 +222,9 @@ function LoginView() {
             <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
           </div>
           {error && <div className="error-message">{error}</div>}
-          <button className="btn btn-primary" style={{ width: '100%' }} type="submit">Login</button>
+          <button className="btn btn-primary" style={{ width: '100%' }} type="submit" disabled={loading}>
+            {loading ? <span className="spinner"></span> : 'Login'}
+          </button>
         </form>
       </div>
     </div>
@@ -251,21 +235,18 @@ export default function App() {
   const { user, logout, loading: authLoading } = useAuth();
   const { executeQuery, results, history, loading: dbLoading, error: dbError, fetchHistory } = useDatabase();
   
-  const [tabs, setTabs] = useState([{ id: '1', title: 'query1.sql', sql: 'SELECT 1;', dirty: false }]);
+  const [tabs, setTabs] = useState([{ id: '1', title: 'query1.sql', sql: 'SELECT * FROM users;', dirty: false }]);
   const [activeTabId, setActiveTabId] = useState('1');
   const [connected, setConnected] = useState(false);
   const [schema, setSchema] = useState([]);
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [sidebarTab, setSidebarTab] = useState('schema');
   const [bottomTab, setBottomTab] = useState('results');
-  const [consoleText, setConsoleText] = useState('');
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
 
   useEffect(() => {
-    if (user) {
-      fetchHistory();
-    }
+    if (user) fetchHistory();
   }, [user, fetchHistory]);
 
   const fetchSchemaData = async () => {
@@ -291,23 +272,25 @@ export default function App() {
     }
   };
 
-  const handleAI = async () => {
-    const prompt = window.prompt("What query would you like to generate?");
-    if (!prompt) return;
+  const handleLoadSample = async () => {
     try {
-      const result = await suggestQuery(prompt);
-      if (result.sql) {
-        updateSQL(activeTabId, result.sql);
-      }
+      await axiosInstance.post('/api/load-sample-db/');
+      setConnected(true);
+      fetchSchemaData();
+      fetchHistory();
+      alert("Sample Database Loaded!");
     } catch (err) {
       alert(err.message);
     }
   };
 
-  const handleConnect = () => {
-    setConnected(true);
-    fetchSchemaData();
-    fetchHistory();
+  const handleAI = async () => {
+    const prompt = window.prompt("Ask AI to generate a query (e.g. 'Show all users')");
+    if (!prompt) return;
+    try {
+      const result = await suggestQuery(prompt);
+      if (result.sql) updateSQL(activeTabId, result.sql);
+    } catch (err) { alert(err.message); }
   };
 
   const updateSQL = (id, value) => {
@@ -316,16 +299,11 @@ export default function App() {
 
   const addTab = (sql = '', title = '') => {
     const newId = String(Date.now());
-    setTabs([...tabs, {
-      id: newId,
-      title: title || `query${tabs.length + 1}.sql`,
-      sql: sql,
-      dirty: false
-    }]);
+    setTabs([...tabs, { id: newId, title: title || `query${tabs.length + 1}.sql`, sql, dirty: false }]);
     setActiveTabId(newId);
   };
 
-  if (authLoading) return <div className="app-root" style={{ justifyContent: 'center', alignItems: 'center' }}><span className="spinner"></span></div>;
+  if (authLoading) return <div className="app-root flex-center"><span className="spinner"></span></div>;
   if (!user) return <LoginView />;
 
   return (
@@ -334,6 +312,7 @@ export default function App() {
         <span className="app-title">🗄️ InfraDB</span>
         <div className="toolbar-section">
           <button className="toolbar-btn" onClick={() => setConnectionDialogOpen(true)}><FaDatabase /> Connect</button>
+          <button className="toolbar-btn" onClick={handleLoadSample}><FaFlask /> Sample DB</button>
           <button className="toolbar-btn" onClick={handleRun} disabled={dbLoading || !connected}><FaPlay /> Run</button>
           <button className="toolbar-btn" onClick={handleAI}><FaRobot /> AI Suggest</button>
         </div>
@@ -359,7 +338,8 @@ export default function App() {
           <div className="tab-strip">
             {tabs.map(tab => (
               <button key={tab.id} className={`tab-item ${tab.id === activeTabId ? 'active' : ''}`} onClick={() => setActiveTabId(tab.id)}>
-                {tab.title} {tab.dirty && <span style={{ color: '#f48771' }}>●</span>}
+                {tab.title} {tab.dirty && <span className="dirty-dot">●</span>}
+                <span className="tab-close" onClick={(e) => { e.stopPropagation(); setTabs(tabs.filter(t => t.id !== tab.id)); }}>×</span>
               </button>
             ))}
             <button className="tab-add" onClick={() => addTab()}>+</button>
@@ -376,7 +356,7 @@ export default function App() {
         </div>
       </div>
 
-      <ConnectionDialog isOpen={connectionDialogOpen} onClose={() => setConnectionDialogOpen(false)} onConnect={handleConnect} />
+      <ConnectionDialog isOpen={connectionDialogOpen} onClose={() => setConnectionDialogOpen(false)} onConnect={() => { setConnected(true); fetchSchemaData(); fetchHistory(); }} />
     </div>
   );
 }
