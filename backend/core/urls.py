@@ -30,6 +30,7 @@ urlpatterns = [
     
     # ER Diagram
     path('er-diagram/', views.er_diagram, name='er_diagram'),
+    path('ping/', views.ping, name='ping'),
     # Load sample DB for onboarding
     path('load-sample-db/', views.load_sample_db, name='load_sample_db'),
     

@@ -1,75 +1,61 @@
-# settings/base.py
 import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from .env file automatically
 load_dotenv()
 
-# IMPORTANT: Changed to parent.parent.parent (3 levels up)
+# Base directory is 3 levels up, customize as needed
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# Secret key from environment variable
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-temporary-key')
+# Secret key (set strong key in production via env)
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-for-local")
 
-# Keep ALL your other existing settings below...
-# (Copy everything else from your original settings.py)
+# Debug mode controlled by env var (case insensitive)
+DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() == "true"
 
+# Allowed hosts from env variable, fallback to localhost ips
+ALLOWED_HOSTS = os.environ.get(
+    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0"
+).split(",")
 
+# Encryption key fallback for dev
+FERNET_KEY = os.environ.get("FERNET_KEY", "<dev-fallback-key>")
 
-load_dotenv()
-COHERE_API_KEY = os.getenv("COHERE_API_KEY", "DS7ZX1knDrwTVYoBxcA1Uj4csl3e3Jq1ZswFHHr0")
+# Path for deployments
+DEPLOY_BASE = os.environ.get("DEPLOY_BASE", os.path.join(BASE_DIR, "deployments"))
 
+# External service API keys
+COHERE_API_KEY = os.environ.get("COHERE_API_KEY", "DS7ZX1knDrwTVYoBxcA1Uj4csl3e3Jq1ZswFHHr0")
 
+# Media files settings
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-# --------------------------------------------------
-# BASE DIRECTORY
-# --------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-# --------------------------------------------------
-# SECURITY
-# --------------------------------------------------
-# Keep secret key safe in production environment
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-key-for-local")
-
-# DEBUG mode
-DEBUG = os.environ.get("DJANGO_DEBUG", "True") == "True"
-
-# Hosts allowed to serve your app
-ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 
 
-# --------------------------------------------------
-# INSTALLED APPS
-# --------------------------------------------------
+# Installed apps
 INSTALLED_APPS = [
-    # Django default
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-        'django_extensions',
-
-    # Third-party apps
+    "django_extensions",
     "rest_framework",
     "corsheaders",
-
-    # Local apps
     "core",
+    "deploydb",
 ]
 
-# --------------------------------------------------
-# MIDDLEWARE
-# --------------------------------------------------
+# Middleware
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",  # must be first
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",  # Add this line
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # static files middleware
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -78,11 +64,10 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-# --------------------------------------------------
-# URLS / TEMPLATES / WSGI
-# --------------------------------------------------
+# URL routing
 ROOT_URLCONF = "backend.urls"
 
+# Template settings
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -100,9 +85,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "backend.wsgi.application"
 
-# --------------------------------------------------
-# DATABASE (default SQLite, can switch to PostgreSQL)
-# --------------------------------------------------
+# Database connection
 DATABASES = {
     "default": {
         "ENGINE": os.environ.get("DB_ENGINE", "django.db.backends.sqlite3"),
@@ -114,9 +97,7 @@ DATABASES = {
     }
 }
 
-# --------------------------------------------------
-# PASSWORD VALIDATION
-# --------------------------------------------------
+# Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
@@ -124,39 +105,29 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# --------------------------------------------------
-# INTERNATIONALIZATION
-# --------------------------------------------------
+# Internationalization
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
-
 USE_I18N = True
 USE_TZ = True
 
-# --------------------------------------------------
-# STATIC FILES
-# --------------------------------------------------
-# Static files (CSS, JavaScript, Images)
+# Static files
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-
-# --------------------------------------------------
-# DEFAULT AUTO FIELD
-# --------------------------------------------------
+# Default auto field
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# --------------------------------------------------
-# REST FRAMEWORK
-# --------------------------------------------------
+# Django REST Framework config with JWT
+from datetime import timedelta
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ]
+    ],
 }
 
-from datetime import timedelta
-# --------------------------------------------------
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=5),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
@@ -167,34 +138,20 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# --------------------------------------------------
-# CORS CONFIGURATION
-# --------------------------------------------------
-# --------------------------------------------------
-# CORS & CSRF CONFIGURATION
-# --------------------------------------------------
-
-# Allow React frontend to connect
+# CORS settings for dev frontend
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
 
-# Allow credentials (cookies, auth headers, etc.)
 CORS_ALLOW_CREDENTIALS = True
-
-# Allow all headers and methods
 CORS_ALLOW_HEADERS = ["*"]
 CORS_ALLOW_METHODS = ["*"]
 
-# For local development, you can keep this True
-# But in production, REMOVE this line
+# For dev only - remove in production
 CORS_ALLOW_ALL_ORIGINS = True
 
-# CSRF trusted origins (needed to fix Forbidden error)
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
-# Static files configuration
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'

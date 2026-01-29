@@ -1,35 +1,65 @@
-// src/services/api.js
-import axios from "axios";
+// Use environment variable if available (Vite: VITE_API_URL) or fallback to localhost
+const API_URL = (typeof window !== 'undefined' && window.__API_URL__) || import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
-// Use production backend URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || "https://infradb-backend.onrender.com/api";
+let authToken = localStorage.getItem('auth_token') || null;
 
-console.log("🔗 API Base URL:", API_BASE_URL);
+export const setAuthToken = (token) => {
+      authToken = token;
+      try { localStorage.setItem('auth_token', token); } catch (e) { }
+};
 
-// Base API instance
-const API = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
+export const clearAuthToken = () => {
+      authToken = null;
+      try { localStorage.removeItem('auth_token'); } catch (e) { }
+};
 
-// Fetch database schema (tables + columns)
-export const fetchSchema = () => API.get("/schema/");
+const parseJSONSafe = async (res) => {
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) return await res.json();
+      return await res.text();
+};
 
-// Fetch last 10 query history
-export const fetchHistory = () => API.get("/queries/history/");
+export const apiCall = async (method, endpoint, data = null, options = {}) => {
+      const { credentials = false } = options;
+      try {
+            const url = `${API_URL}${endpoint}`;
+            const headers = {};
+            let body = null;
 
-// Run SQL query (supports single or multiple statements)
-export const runQuery = (sql) => API.post("/queries/run/", { query: sql });
+            // FormData (file uploads)
+            if (data instanceof FormData) {
+                  body = data;
+            } else if (data !== null && data !== undefined) {
+                  headers['Content-Type'] = 'application/json';
+                  body = JSON.stringify(data);
+            }
 
-// Explain query (optional)
-export const explainQuery = (sql) => API.post("/queries/explain/", { query: sql });
+            if (authToken) {
+                  headers['Authorization'] = `Bearer ${authToken}`;
+            }
 
-// Save query (optional)
-export const saveQuery = (payload) => API.post("/queries/save/", payload);
+            const response = await fetch(url, {
+                  method,
+                  headers,
+                  credentials: credentials ? 'include' : 'same-origin',
+                  body
+            });
 
-// AI-assisted query suggestion (optional)
-export const aiSuggest = (description) => API.post("/ai/query_suggest/", { description });
+            if (!response.ok) {
+                  const parsed = await parseJSONSafe(response).catch(() => ({ error: 'Unknown error' }));
+                  const errMsg = (parsed && parsed.error) ? parsed.error : `API Error: ${response.status}`;
+                  throw new Error(errMsg);
+            }
 
-export default API;
+            return await parseJSONSafe(response);
+      } catch (error) {
+            throw error;
+      }
+};
+
+export const uploadFile = async (endpoint, file, fields = {}) => {
+      const form = new FormData();
+      form.append('file', file);
+      Object.keys(fields || {}).forEach(k => form.append(k, fields[k]));
+      return apiCall('POST', endpoint, form, { credentials: true });
+};

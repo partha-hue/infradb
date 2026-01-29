@@ -1,16 +1,25 @@
-# React + Vite
+# InfraDB Frontend (Dev)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This frontend is a minimal VS Code–style scaffold using Vite + React and Monaco Editor.
 
-Currently, two official plugins are available:
+## Quick start (dev)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. Fix any locked `electron` artifacts (Windows):
+   - Reboot OR use Sysinternals `handle.exe`/Process Explorer to find/close handles for `node_modules\electron\dist\resources\default_app.asar`.
+2. Install deps and run dev server:
 
-## React Compiler
+```powershell
+cd frontend
+npm install
+npm run dev
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+If `npm install` fails with EBUSY on Windows for Electron resources, try:
+- Reboot the machine; or
+- Run Sysinternals Handle as Administrator to find the locking process and close it.
 
-## Expanding the ESLint configuration
+## What's implemented
+- Sidebar, Topbar, Editor area (Monaco), File Explorer, Query History, Connection modal
+- API helpers for ping, run query, saved queries, schema
+- Desktop integration: Electron main process, IPC handlers for Open/Save, and menu template added so the app can run as a desktop IDE
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.

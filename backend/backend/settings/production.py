@@ -20,6 +20,8 @@ DATABASES = {
         conn_max_age=600
     )
 }
+CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
 
 # CSRF settings
 csrf_origins_str = os.environ.get('CSRF_TRUSTED_ORIGINS', '')

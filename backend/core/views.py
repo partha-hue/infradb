@@ -60,6 +60,8 @@ except Exception:
 connections = {}
 in_memory_history = []
 saved_queries_memory = []
+active_connections = {}
+
 
 # Helper: create DB cursor
 def _get_cursor_and_commit_fn(conn_obj, db_type):
@@ -148,161 +150,174 @@ def register(request):
     except Exception as e:
         return Response({"error": str(e)}, status=400)
 
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def ping(request):
+    """Simple healthcheck endpoint used by the frontend"""
+    return Response({"status": "ok"}, status=200)
+
 # -------------------------
 # CONNECT - MULTI-CLOUD SUPPORT
 # -------------------------
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+import sqlite3, mysql.connector, psycopg2, os
+from django.conf import settings
+
+# Global connection store
+connections = {}
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def connect(request):
-    """Connect to database - supports SQLite, MySQL, PostgreSQL (cloud and local)"""
-    
-    # Accept both 'type' and 'db_type' for backward compatibility
+    """
+    Connect to database - supports SQLite, MySQL, PostgreSQL (both local and cloud)
+    Returns a connection_id used by frontend for schema and query requests
+    """
     db_type = request.data.get('db_type') or request.data.get('type')
-    
     if not db_type:
         return Response({'error': 'Missing required field: db_type or type'}, status=400)
-    
-    print(f"[CONNECT] Database type: {db_type}")
-    
-    # ========== SQLite ==========
+
+    print(f"[CONNECT] Requested database type: {db_type}")
+
+    # =========================================================
+    # SQLITE CONNECTION
+    # =========================================================
     if db_type == 'sqlite':
         database = request.data.get('database', 'default.db')
-        
         db_dir = os.path.join(settings.BASE_DIR, 'user_databases')
         os.makedirs(db_dir, exist_ok=True)
         db_path = os.path.join(db_dir, database)
-        
+
         try:
             conn = sqlite3.connect(db_path, check_same_thread=False)
-            conn.execute("SELECT 1")  # Test connection
-            
-            connections["current"] = {"type": "sqlite", "conn": conn}
-            
+            conn.execute("SELECT 1")
+            connection_id = f"sqlite_{os.path.basename(database)}"
+            connections[connection_id] = {"type": "sqlite", "conn": conn}
+            # Make this the current active connection for subsequent queries
+            connections["current"] = connections[connection_id]
+            print(f"[CONNECT → CURRENT] Set current connection: {connection_id}")
+
             return Response({
                 'success': True,
                 'ok': True,
                 'message': f'✅ Connected to SQLite: {database}',
+                'connection_id': connection_id,
                 'provider': 'Local SQLite'
             })
         except Exception as e:
-            return Response({'error': f'SQLite error: {str(e)}'}, status=400)
-    
-    # ========== MySQL ==========
+            return Response({'error': f'SQLite connection failed: {str(e)}'}, status=400)
+
+    # =========================================================
+    # MYSQL CONNECTION
+    # =========================================================
     elif db_type == 'mysql':
         host = request.data.get('host')
-        port = request.data.get('port', 3306)
+        port = int(request.data.get('port', 3306))
         user = request.data.get('user')
         password = request.data.get('password')
         database = request.data.get('database')
-        
+
         if not all([host, user, password, database]):
-            return Response({
-                'error': 'MySQL requires: host, user, password, database'
-            }, status=400)
-        
-        # Block localhost in production
-        if host in ['localhost', '127.0.0.1', '::1']:
-            return Response({
-                'error': '⚠️ Localhost not supported in production.\n\n' +
-                        'Use cloud MySQL:\n' +
-                        '• PlanetScale (free tier)\n' +
-                        '• Railway (free $5/month)\n' +
-                        '• AWS RDS, Google Cloud SQL'
-            }, status=400)
-        
+            return Response({'error': 'MySQL requires host, user, password, database'}, status=400)
+
         try:
-            # Detect cloud provider
-            provider = 'Unknown'
+            provider = "Unknown"
             if 'planetscale' in host.lower():
                 provider = 'PlanetScale'
             elif 'railway' in host.lower():
                 provider = 'Railway'
-            elif 'amazonaws' in host.lower():
+            elif 'aws' in host.lower() or 'amazonaws' in host.lower():
                 provider = 'AWS RDS'
-            
+
             conn = mysql.connector.connect(
                 host=host,
-                port=int(port),
+                port=port,
                 user=user,
                 password=password,
                 database=database,
-                autocommit=False
+                autocommit=False,
+                connection_timeout=10
             )
-            
-            connections["current"] = {
-                "type": "mysql",
-                "conn": conn,
-                "provider": provider
-            }
-            
+            conn.cursor().execute("SELECT 1")
+
+            connection_id = f"mysql_{host}_{database}"
+            connections[connection_id] = {"type": "mysql", "conn": conn, "provider": provider}
+            # Make this the current active connection for subsequent queries
+            connections["current"] = connections[connection_id]
+            print(f"[CONNECT ✅] Connected to MySQL at {host}; set current connection: {connection_id}")
             return Response({
                 'success': True,
                 'ok': True,
-                'message': f'✅ Connected to MySQL: {database}',
+                'message': f'✅ Connected to MySQL database: {database}',
+                'connection_id': connection_id,
                 'provider': provider
             })
-            
         except Exception as e:
+            print(f"[CONNECT ❌] MySQL error: {e}")
             return Response({'error': f'MySQL connection failed: {str(e)}'}, status=400)
-    
-    # ========== PostgreSQL ==========
+
+    # =========================================================
+    # POSTGRESQL CONNECTION
+    # =========================================================
     elif db_type == 'postgresql':
         host = request.data.get('host')
-        port = request.data.get('port', 5432)
+        port = int(request.data.get('port', 5432))
         user = request.data.get('user')
         password = request.data.get('password')
         database = request.data.get('database')
-        
+
         if not all([host, user, password, database]):
-            return Response({
-                'error': 'PostgreSQL requires: host, user, password, database'
-            }, status=400)
-        
-        # Block localhost in production
-        if host in ['localhost', '127.0.0.1', '::1']:
-            return Response({
-                'error': '⚠️ Localhost not supported in production.\n\n' +
-                        'Use cloud PostgreSQL:\n' +
-                        '• Render (free tier)\n' +
-                        '• Supabase (free tier)\n' +
-                        '• Railway, Neon, AWS RDS'
-            }, status=400)
-        
+            return Response({'error': 'PostgreSQL requires host, user, password, database'}, status=400)
+
         try:
-            # Detect cloud provider
-            provider = 'Unknown'
+            provider = "Unknown"
             if 'render' in host.lower():
                 provider = 'Render'
             elif 'supabase' in host.lower():
                 provider = 'Supabase'
             elif 'railway' in host.lower():
                 provider = 'Railway'
-            
+            elif 'neon' in host.lower():
+                provider = 'Neon'
+            elif 'aws' in host.lower() or 'amazonaws' in host.lower():
+                provider = 'AWS RDS'
+
             conn = psycopg2.connect(
                 host=host,
-                port=int(port),
+                port=port,
                 user=user,
                 password=password,
-                dbname=database
+                dbname=database,
+                connect_timeout=10
             )
-            
-            connections["current"] = {
-                "type": "postgresql",
-                "conn": conn,
-                "provider": provider
-            }
-            
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            cur.close()
+
+            connection_id = f"pgsql_{host}_{database}"
+            connections[connection_id] = {"type": "postgresql", "conn": conn, "provider": provider}
+            # Make this the current active connection for subsequent queries
+            connections["current"] = connections[connection_id]
+            print(f"[CONNECT ✅] Connected to PostgreSQL at {host}; set current connection: {connection_id}")
             return Response({
                 'success': True,
                 'ok': True,
-                'message': f'✅ Connected to PostgreSQL: {database}',
+                'message': f'✅ Connected to PostgreSQL database: {database}',
+                'connection_id': connection_id,
                 'provider': provider
             })
-            
         except Exception as e:
+            print(f"[CONNECT ❌] PostgreSQL error: {e}")
             return Response({'error': f'PostgreSQL connection failed: {str(e)}'}, status=400)
-    
-    return Response({'error': f'Unsupported database type: {db_type}'}, status=400)
+
+    # =========================================================
+    # UNSUPPORTED
+    # =========================================================
+    else:
+        return Response({'error': f'Unsupported database type: {db_type}'}, status=400)
 
 # [REST OF YOUR CODE CONTINUES HERE - disconnect, schema, run_query, etc.]
 
@@ -327,35 +342,73 @@ def disconnect(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def schema(request):
-    if "current" not in connections:
-        return Response({"error": "No active database connection"}, status=400)
+    db_type = request.GET.get("db_type")
+    host = request.GET.get("host")
+    port = request.GET.get("port")
+    user = request.GET.get("user")
+    password = request.GET.get("password")
+    database = request.GET.get("database")
 
-    db_type = connections["current"]["type"]
-    conn = connections["current"]["conn"]
+    if not db_type:
+        return Response({"error": "Missing db_type"}, status=400)
+
+    conn = None
     cur = None
     result = []
 
     try:
-        if db_type == "mysql":
-            cur = conn.cursor(buffered=True)
-        else:
-            cur = conn.cursor()
-
+        # ✅ Establish a temporary connection for schema reading
         if db_type == "postgresql":
-            cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;")
+            import psycopg2
+            conn = psycopg2.connect(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                database=database
+            )
+        elif db_type == "mysql":
+            import mysql.connector
+            conn = mysql.connector.connect(
+                host=host,
+                port=int(port),
+                user=user,
+                password=password,
+                database=database
+            )
+        elif db_type == "sqlite":
+            import sqlite3
+            conn = sqlite3.connect(database)
+        else:
+            return Response({"error": "Unsupported database type"}, status=400)
+
+        cur = conn.cursor()
+
+        # ✅ PostgreSQL
+        if db_type == "postgresql":
+            cur.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                ORDER BY table_name;
+            """)
             tables = [r[0] for r in cur.fetchall()]
 
             for t in tables:
-                cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s ORDER BY ordinal_position;", (t,))
+                cur.execute("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = %s 
+                    ORDER BY ordinal_position;
+                """, (t,))
                 cols = [r[0] for r in cur.fetchall()]
                 result.append({"name": t, "columns": cols})
 
+        # ✅ MySQL
         elif db_type == "mysql":
-            # Get the current database name
             cur.execute("SELECT DATABASE();")
             db_name = cur.fetchone()[0]
-            
-            # Get tables using information_schema
+
             cur.execute("""
                 SELECT table_name 
                 FROM information_schema.tables 
@@ -365,27 +418,23 @@ def schema(request):
             tables = [r[0] for r in cur.fetchall()]
 
             for t in tables:
-                # Get columns using information_schema
                 cur.execute("""
                     SELECT column_name 
                     FROM information_schema.columns 
-                    WHERE table_schema = %s 
-                    AND table_name = %s 
+                    WHERE table_schema = %s AND table_name = %s 
                     ORDER BY ordinal_position;
                 """, (db_name, t))
                 cols = [r[0] for r in cur.fetchall()]
                 result.append({"name": t, "columns": cols})
 
+        # ✅ SQLite
         elif db_type == "sqlite":
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name;")
             tables = [r[0] for r in cur.fetchall()]
-
             for t in tables:
                 cur.execute(f"PRAGMA table_info(`{t}`);")
                 cols = [r[1] for r in cur.fetchall()]
                 result.append({"name": t, "columns": cols})
-        else:
-            return Response({"error": "Unsupported database type"}, status=400)
 
         return Response({"tables": result}, status=200)
 
@@ -399,6 +448,12 @@ def schema(request):
                 cur.close()
             except:
                 pass
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
 
 # -------------------------
 # RUN QUERY (Enhanced with Performance Tracking)
@@ -1038,117 +1093,63 @@ def list_databases(request):
 # -------------------------
 # IMPORT CSV
 # -------------------------
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+import os, csv, io
+
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def import_csv(request):
     if "current" not in connections:
         return Response({"error": "No active database connection"}, status=400)
-
-    db_type = connections["current"]["type"]
     conn = connections["current"]["conn"]
+    db_type = connections["current"]["type"]
 
     uploaded_file = request.FILES.get("file")
     if not uploaded_file:
         return Response({"error": "No file uploaded"}, status=400)
 
-    table_name = request.data.get("table_name")
-    if not table_name:
-        table_name = os.path.splitext(uploaded_file.name)[0]
-    
+    table_name = request.data.get("table_name") or os.path.splitext(uploaded_file.name)[0]
     table_name = "".join(c if c.isalnum() or c == "_" else "_" for c in table_name)
     if not table_name or table_name[0].isdigit():
         table_name = "table_" + table_name
-    
+
     try:
-        csv_content = uploaded_file.read().decode('utf-8')
+        csv_content = uploaded_file.read().decode("utf-8")
         csv_reader = csv.reader(io.StringIO(csv_content))
-        
         headers = next(csv_reader)
-        
-        sanitized_headers = []
-        for h in headers:
-            sanitized = "".join(c if c.isalnum() or c == "_" else "_" for c in h)
-            if not sanitized or sanitized[0].isdigit():
-                sanitized = "col_" + sanitized
-            sanitized_headers.append(sanitized)
-        
+        sanitized_headers = ["col_%s" % i if (not h or not h[0].isalpha()) else "".join(c if c.isalnum() or c == "_" else "_" for c in h) for i, h in enumerate(headers)]
+
         rows = list(csv_reader)
-        
         if not rows:
             return Response({"error": "CSV file is empty"}, status=400)
-        
-        column_types = []
-        for i, header in enumerate(sanitized_headers):
-            column_values = [row[i] if i < len(row) else "" for row in rows]
-            col_type = _infer_column_type(column_values)
-            column_types.append(col_type)
-        
-        cur, commit_fn = _get_cursor_and_commit_fn(conn, db_type)
-        
-        if db_type == "postgresql":
-            type_map = {"INTEGER": "INTEGER", "REAL": "NUMERIC", "TEXT": "TEXT"}
-            columns_def = ", ".join([f'"{h}" {type_map[t]}' for h, t in zip(sanitized_headers, column_types)])
-            create_stmt = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({columns_def});'
-            placeholders = ", ".join(["%s"] * len(sanitized_headers))
-            col_list = ", ".join([f'"{h}"' for h in sanitized_headers])
-            insert_stmt = f'INSERT INTO "{table_name}" ({col_list}) VALUES ({placeholders});'
-        elif db_type == "mysql":
-            type_map = {"INTEGER": "INT", "REAL": "DECIMAL(10,2)", "TEXT": "TEXT"}
-            columns_def = ", ".join([f"`{h}` {type_map[t]}" for h, t in zip(sanitized_headers, column_types)])
-            create_stmt = f"CREATE TABLE IF NOT EXISTS `{table_name}` ({columns_def});"
-            placeholders = ", ".join(["%s"] * len(sanitized_headers))
-            col_list = ", ".join([f"`{h}`" for h in sanitized_headers])
-            insert_stmt = f"INSERT INTO `{table_name}` ({col_list}) VALUES ({placeholders});"
-        else:
-            type_map = {"INTEGER": "INTEGER", "REAL": "REAL", "TEXT": "TEXT"}
-            columns_def = ", ".join([f"`{h}` {type_map[t]}" for h, t in zip(sanitized_headers, column_types)])
-            create_stmt = f"CREATE TABLE IF NOT EXISTS `{table_name}` ({columns_def});"
-            placeholders = ", ".join(["?"] * len(sanitized_headers))
-            col_list = ", ".join([f"`{h}`" for h in sanitized_headers])
-            insert_stmt = f"INSERT INTO `{table_name}` ({col_list}) VALUES ({placeholders});"
-        
-        print(f"✅ Creating table: {create_stmt}")
+
+        type_map = {"INTEGER": "INTEGER", "REAL": "REAL", "TEXT": "TEXT"}
+        column_types = ["TEXT"] * len(sanitized_headers)  # Always TEXT for max compatibility
+        columns_def = ", ".join([f"`{h}` {type_map[t]}" for h, t in zip(sanitized_headers, column_types)])
+        create_stmt = f"CREATE TABLE IF NOT EXISTS `{table_name}` ({columns_def});"
+        placeholders = ", ".join(["?"] * len(sanitized_headers))
+        col_list = ", ".join([f"`{h}`" for h in sanitized_headers])
+        insert_stmt = f"INSERT INTO `{table_name}` ({col_list}) VALUES ({placeholders});"
+
+        cur = conn.cursor()
         cur.execute(create_stmt)
-        commit_fn()
-        
-        cleaned_rows = []
-        for row in rows:
-            cleaned_row = []
-            for i, val in enumerate(row):
-                if i >= len(sanitized_headers):
-                    break
-                if not val or not str(val).strip():
-                    cleaned_row.append(None)
-                else:
-                    col_type = column_types[i]
-                    try:
-                        if col_type == "INTEGER":
-                            cleaned_row.append(int(val))
-                        elif col_type == "REAL":
-                            cleaned_row.append(float(val))
-                        else:
-                            cleaned_row.append(str(val).strip())
-                    except ValueError:
-                        cleaned_row.append(str(val).strip())
-            
-            while len(cleaned_row) < len(sanitized_headers):
-                cleaned_row.append(None)
-            
-            cleaned_rows.append(cleaned_row)
-        
-        print(f"✅ Inserting {len(cleaned_rows)} rows...")
+        conn.commit()
+
+        # Fill missing columns with None for shorter rows
+        cleaned_rows = [row + [None] * (len(sanitized_headers) - len(row)) for row in rows]
         cur.executemany(insert_stmt, cleaned_rows)
-        commit_fn()
-        
+        conn.commit()
         cur.close()
-        
+
         return Response({
             "message": f"✅ CSV imported successfully into table '{table_name}'",
-            "table_name": table_name,
+            "tablename": table_name,
             "rows_imported": len(cleaned_rows),
             "columns": sanitized_headers
         }, status=200)
-        
+
     except Exception as e:
         print(f"❌ CSV Import Error: {e}")
         return Response({"error": str(e)}, status=400)
@@ -1219,13 +1220,11 @@ def er_diagram(request):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def load_sample_db(request):
-    """Create a sample sqlite DB file with seeded data and connect to it.
-    This helps beginners explore the app without external DB setup.
-    """
+    """Create a sample sqlite DB file with seeded data and connect to it."""
     try:
         sample_path = os.path.join(settings.BASE_DIR, "sample_db.sqlite3")
 
-        # Create or overwrite the sample DB
+        # Delete existing sample DB to avoid conflicts
         if os.path.exists(sample_path):
             try:
                 os.remove(sample_path)
@@ -1235,28 +1234,28 @@ def load_sample_db(request):
         conn = sqlite3.connect(sample_path, check_same_thread=False)
         cur = conn.cursor()
 
-        # Simple sample schema: products, customers, orders, order_items
+        # Use IF NOT EXISTS for tables to prevent error if already present
         cur.executescript("""
-        CREATE TABLE products (
+        CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             price REAL NOT NULL
         );
 
-        CREATE TABLE customers (
+        CREATE TABLE IF NOT EXISTS customers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             email TEXT
         );
 
-        CREATE TABLE orders (
+        CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             customer_id INTEGER,
             created_at TEXT,
             FOREIGN KEY(customer_id) REFERENCES customers(id)
         );
 
-        CREATE TABLE order_items (
+        CREATE TABLE IF NOT EXISTS order_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_id INTEGER,
             product_id INTEGER,
@@ -1274,16 +1273,18 @@ def load_sample_db(request):
         ]
         customers = [("Alice", "alice@example.com"), ("Bob", "bob@example.com")]
 
-        cur.executemany("INSERT INTO products (name, price) VALUES (?, ?);", products)
-        cur.executemany("INSERT INTO customers (name, email) VALUES (?, ?);", customers)
+        cur.executemany("INSERT OR IGNORE INTO products (name, price) VALUES (?, ?);", products)
+        cur.executemany("INSERT OR IGNORE INTO customers (name, email) VALUES (?, ?);", customers)
 
         conn.commit()
 
-        # Add sample orders
-        cur.execute("INSERT INTO orders (customer_id, created_at) VALUES (?, ?);", (1, datetime.utcnow().isoformat()))
-        order_id = cur.lastrowid
-        cur.execute("INSERT INTO order_items (order_id, product_id, qty) VALUES (?, ?, ?);", (order_id, 1, 2))
-        conn.commit()
+        # Add sample orders safely
+        existing_orders = cur.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+        if existing_orders == 0:
+            cur.execute("INSERT INTO orders (customer_id, created_at) VALUES (?, ?);", (1, datetime.utcnow().isoformat()))
+            order_id = cur.lastrowid
+            cur.execute("INSERT INTO order_items (order_id, product_id, qty) VALUES (?, ?, ?);", (order_id, 1, 2))
+            conn.commit()
 
         try:
             cur.close()

@@ -1,0 +1,11 @@
+appId: com.infradb.app
+productName: InfraDB
+directories:
+  output: release
+files:
+  - '**/*'
+win:
+  target:
+    - nsis
+publish:
+  provider: generic
