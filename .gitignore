@@ -21,11 +21,13 @@ venv/
 ENV/
 env/
 
-# Node modules (if frontend uses Node)
+# Node/Frontend
 node_modules/
 frontend/node_modules/
 frontend/build/
 frontend/dist/
+frontend/release/
+*.map
 
 # IDE
 .vscode/
@@ -42,9 +44,6 @@ Thumbs.db
 backend/sample_db.sqlite3
 
 # Build files
-*.map
-
-# Empty files
 backend/d
 backend/DGggg
 backend/f
