@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { FaDatabase, FaPlay, FaHistory, FaTable, FaProjectDiagram, FaFileImport, FaSave, FaRobot, FaCog, FaSignOutAlt, FaFlask } from 'react-icons/fa';
-import { connectDB, getSchema, suggestQuery, importData, runQuery as runQueryService } from './api/dbService';
+import { FaDatabase, FaPlay, FaHistory, FaTable, FaProjectDiagram, FaFileImport, FaSave, FaRobot, FaCog, FaSignOutAlt, FaFlask, FaTimes, FaPlus } from 'react-icons/fa';
+import { connectDB, getSchema, suggestQuery, importData } from './api/dbService';
 import { useAuth } from './hooks/useAuth';
 import { useDatabase } from './hooks/useDatabase';
 import axiosInstance from './api/axios';
@@ -111,7 +111,6 @@ function SchemaPanel({ schema, loading }) {
         <div className="empty-state">
           <div className="empty-state-icon">📭</div>
           <div className="empty-state-text">No tables found</div>
-          <div style={{fontSize: '11px', color: '#888', marginTop: '5px'}}>Load Sample DB or import data</div>
         </div>
       </div>
     );
@@ -140,7 +139,7 @@ function HistoryPanel({ history, onLoad }) {
     <div className="sidebar-content scrollbar">
       {history.map((item, idx) => (
         <div key={idx} className="history-item" onClick={() => onLoad(item.query)}>
-          <div className="history-query">{item.query.slice(0, 60)}...</div>
+          <div className="history-query">{item.query.slice(0, 50)}...</div>
           <div className="history-meta">⏱️ {Math.round(item.execution_time || 0)}ms</div>
         </div>
       ))}
@@ -151,13 +150,9 @@ function HistoryPanel({ history, onLoad }) {
 // Results Panel
 function ResultsPanel({ results, error }) {
   if (error) return <div className="bottom-content"><div className="error-message">{error}</div></div>;
-  if (!results) return <div className="bottom-content"><div className="empty-state"><div className="empty-state-icon">📊</div><div className="empty-state-text">Run a query to see results</div></div></div>;
+  if (!results) return <div className="bottom-content"><div className="empty-state"><div className="empty-state-icon">📊</div><div className="empty-state-text">Run query</div></div></div>;
 
   const displayResults = Array.isArray(results) ? results : (results.results || []);
-
-  if (displayResults.length === 0) {
-    return <div className="bottom-content"><div className="empty-state">No results returned</div></div>;
-  }
 
   return (
     <div className="bottom-content scrollbar">
@@ -179,7 +174,6 @@ function ResultsPanel({ results, error }) {
                   ))}
                 </tbody>
               </table>
-              {result.rows?.length > 100 && <div className="table-limit-note">Showing 100 of {result.rows.length} rows</div>}
             </div>
           )}
         </div>
@@ -194,24 +188,20 @@ function LoginView() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     try {
       await login({ username, password });
     } catch (err) {
       setError(err.message);
-    } finally {
-      setLoading(false);
     }
   };
 
   return (
     <div className="dialog-overlay">
       <div className="dialog-box" style={{ maxWidth: '350px' }}>
-        <h2 className="dialog-title">🔑 InfraDB Login</h2>
+        <h2 className="dialog-title">🔑 Login to InfraDB</h2>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label className="form-label">Username</label>
@@ -222,9 +212,7 @@ function LoginView() {
             <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
           </div>
           {error && <div className="error-message">{error}</div>}
-          <button className="btn btn-primary" style={{ width: '100%' }} type="submit" disabled={loading}>
-            {loading ? <span className="spinner"></span> : 'Login'}
-          </button>
+          <button className="btn btn-primary" style={{ width: '100%' }} type="submit">Login</button>
         </form>
       </div>
     </div>
@@ -272,25 +260,28 @@ export default function App() {
     }
   };
 
+  const handleAI = async () => {
+    const prompt = window.prompt("What query do you want to generate?");
+    if (!prompt) return;
+    try {
+      const result = await suggestQuery(prompt);
+      if (result.sql) {
+        updateSQL(activeTabId, result.sql);
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   const handleLoadSample = async () => {
     try {
       await axiosInstance.post('/api/load-sample-db/');
       setConnected(true);
       fetchSchemaData();
       fetchHistory();
-      alert("Sample Database Loaded!");
     } catch (err) {
       alert(err.message);
     }
-  };
-
-  const handleAI = async () => {
-    const prompt = window.prompt("Ask AI to generate a query (e.g. 'Show all users')");
-    if (!prompt) return;
-    try {
-      const result = await suggestQuery(prompt);
-      if (result.sql) updateSQL(activeTabId, result.sql);
-    } catch (err) { alert(err.message); }
   };
 
   const updateSQL = (id, value) => {
@@ -308,20 +299,27 @@ export default function App() {
 
   return (
     <div className="app-root">
-      <div className="toolbar">
-        <span className="app-title">🗄️ InfraDB</span>
+      {/* Title Bar / Header (VS Code Style) */}
+      <div className="toolbar header-toolbar">
+        <span className="app-title">🗄️ InfraDB Desktop</span>
+        
         <div className="toolbar-section">
-          <button className="toolbar-btn" onClick={() => setConnectionDialogOpen(true)}><FaDatabase /> Connect</button>
-          <button className="toolbar-btn" onClick={handleLoadSample}><FaFlask /> Sample DB</button>
-          <button className="toolbar-btn" onClick={handleRun} disabled={dbLoading || !connected}><FaPlay /> Run</button>
-          <button className="toolbar-btn" onClick={handleAI}><FaRobot /> AI Suggest</button>
+          <button className="toolbar-btn" onClick={() => setConnectionDialogOpen(true)} title="Connect Database"><FaDatabase /> Connect</button>
+          <button className="toolbar-btn" onClick={handleLoadSample} title="Load Sample Data"><FaFlask /> Sample DB</button>
         </div>
-        <div className="toolbar-section" style={{ marginLeft: 'auto' }}>
+
+        <div className="toolbar-section">
+          <button className="toolbar-btn run-btn" onClick={handleRun} disabled={dbLoading || !connected} title="Run SQL"><FaPlay /> Run</button>
+          <button className="toolbar-btn ai-btn" onClick={handleAI} title="AI SQL Assistant"><FaRobot /> AI Suggest</button>
+        </div>
+
+        <div className="toolbar-section right-aligned">
           <div className="connection-status">
             <div className={`status-dot ${connected ? 'status-ok' : 'status-bad'}`}></div>
-            <span>{connected ? 'Connected' : 'Disconnected'}</span>
+            <span>{connected ? 'Connected' : 'Offline'}</span>
           </div>
-          <button className="toolbar-btn" onClick={logout} title="Logout"><FaSignOutAlt /></button>
+          <button className="toolbar-btn icon-only" title="Settings"><FaCog /></button>
+          <button className="toolbar-btn icon-only logout-btn" onClick={logout} title="Sign Out"><FaSignOutAlt /></button>
         </div>
       </div>
 
@@ -339,13 +337,13 @@ export default function App() {
             {tabs.map(tab => (
               <button key={tab.id} className={`tab-item ${tab.id === activeTabId ? 'active' : ''}`} onClick={() => setActiveTabId(tab.id)}>
                 {tab.title} {tab.dirty && <span className="dirty-dot">●</span>}
-                <span className="tab-close" onClick={(e) => { e.stopPropagation(); setTabs(tabs.filter(t => t.id !== tab.id)); }}>×</span>
+                <span className="tab-close" onClick={(e) => { e.stopPropagation(); setTabs(tabs.filter(t => t.id !== tab.id)); }}><FaTimes /></span>
               </button>
             ))}
-            <button className="tab-add" onClick={() => addTab()}>+</button>
+            <button className="tab-add" onClick={() => addTab()}><FaPlus /></button>
           </div>
           <div className="editor-pane">
-            <textarea className="sql-editor" value={activeTab?.sql || ''} onChange={(e) => updateSQL(activeTabId, e.target.value)} spellCheck="false" />
+            <textarea className="sql-editor" value={activeTab?.sql || ''} onChange={(e) => updateSQL(activeTabId, e.target.value)} spellCheck="false" placeholder="Enter SQL query here..." />
           </div>
           <div className="bottom-pane">
             <div className="bottom-tabs">
