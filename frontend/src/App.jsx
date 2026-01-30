@@ -1,186 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { FaDatabase, FaPlay, FaHistory, FaTable, FaProjectDiagram, FaFileImport, FaSave, FaRobot, FaCog, FaSignOutAlt, FaFlask, FaTimes, FaPlus } from 'react-icons/fa';
-import { connectDB, getSchema, suggestQuery, importData } from './api/dbService';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { 
+  VscDatabase, VscHistory, VscSearch, VscSettingsGear, VscPlay, 
+  VscAdd, VscClose, VscChevronRight, VscChevronDown, 
+  VscSymbolMethod, VscTerminal, VscLayoutSidebarRightOff, VscLayoutSidebarRight,
+  VscAccount, VscDebugConsole, VscCode, VscFeedback, VscBeaker,
+  VscFolderOpened, VscRemoteExplorer, VscSourceControl
+} from "react-icons/vsc";
+import { connectDB, getSchema, suggestQuery, runQuery as runQueryService, loadSampleDB } from './api/dbService';
 import { useAuth } from './hooks/useAuth';
 import { useDatabase } from './hooks/useDatabase';
 import axiosInstance from './api/axios';
 import './styles.css';
-
-// Connection Dialog
-function ConnectionDialog({ isOpen, onClose, onConnect }) {
-  const [dbType, setDbType] = useState('sqlite');
-  const [database, setDatabase] = useState('');
-  const [host, setHost] = useState('');
-  const [port, setPort] = useState('');
-  const [user, setUser] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleConnect = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const payload = { db_type: dbType };
-      if (dbType === 'sqlite') {
-        payload.database = database || 'default.db';
-      } else {
-        payload.host = host;
-        payload.port = port;
-        payload.user = user;
-        payload.password = password;
-        payload.database = database;
-      }
-      const result = await connectDB(payload);
-      onConnect(result);
-      onClose();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="dialog-overlay">
-      <div className="dialog-box">
-        <h2 className="dialog-title">🔗 Connect to Database</h2>
-        <div className="form-group">
-          <label className="form-label">Database Type</label>
-          <select className="form-select" value={dbType} onChange={(e) => setDbType(e.target.value)}>
-            <option value="sqlite">SQLite (Local File)</option>
-            <option value="mysql">MySQL (Remote)</option>
-            <option value="postgresql">PostgreSQL (Remote)</option>
-          </select>
-        </div>
-        {dbType === 'sqlite' ? (
-          <div className="form-group">
-            <label className="form-label">Database File</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="default.db"
-              value={database}
-              onChange={(e) => setDatabase(e.target.value)}
-            />
-          </div>
-        ) : (
-          <>
-            <div className="form-group">
-              <label className="form-label">Host</label>
-              <input type="text" className="form-input" value={host} onChange={(e) => setHost(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Port</label>
-              <input type="text" className="form-input" value={port} onChange={(e) => setPort(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Username</label>
-              <input type="text" className="form-input" value={user} onChange={(e) => setUser(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Password</label>
-              <input type="password" className="form-input" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Database Name</label>
-              <input type="text" className="form-input" value={database} onChange={(e) => setDatabase(e.target.value)} />
-            </div>
-          </>
-        )}
-        {error && <div className="error-message">{error}</div>}
-        <div className="dialog-actions">
-          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleConnect} disabled={loading}>
-            {loading ? <span className="spinner"></span> : 'Connect'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Sidebar Components
-function SchemaPanel({ schema, loading }) {
-  if (loading) return <div className="sidebar-content"><span className="spinner"></span></div>;
-  if (!schema || schema.length === 0) {
-    return (
-      <div className="sidebar-content">
-        <div className="empty-state">
-          <div className="empty-state-icon">📭</div>
-          <div className="empty-state-text">No tables found</div>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="sidebar-content scrollbar">
-      {schema.map((table, idx) => (
-        <div key={idx} className="schema-table">
-          <div className="table-name">📊 {table.name}</div>
-          <ul className="column-list">
-            {table.columns.map((col, colIdx) => (
-              <li key={colIdx}>• {col}</li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function HistoryPanel({ history, onLoad }) {
-  if (!history || history.length === 0) {
-    return <div className="sidebar-content"><div className="empty-state"><div className="empty-state-icon">📜</div><div className="empty-state-text">No history</div></div></div>;
-  }
-  return (
-    <div className="sidebar-content scrollbar">
-      {history.map((item, idx) => (
-        <div key={idx} className="history-item" onClick={() => onLoad(item.query)}>
-          <div className="history-query">{item.query.slice(0, 50)}...</div>
-          <div className="history-meta">⏱️ {Math.round(item.execution_time || 0)}ms</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Results Panel
-function ResultsPanel({ results, error }) {
-  if (error) return <div className="bottom-content"><div className="error-message">{error}</div></div>;
-  if (!results) return <div className="bottom-content"><div className="empty-state"><div className="empty-state-icon">📊</div><div className="empty-state-text">Run query</div></div></div>;
-
-  const displayResults = Array.isArray(results) ? results : (results.results || []);
-
-  return (
-    <div className="bottom-content scrollbar">
-      {displayResults.map((result, idx) => (
-        <div key={idx} className="result-block">
-          <div className="result-header">
-            <span>{result.message || 'Success'}</span>
-            {result.columns?.length > 0 && <span>{result.rows?.length || 0} rows</span>}
-          </div>
-          {result.columns && result.columns.length > 0 && (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="result-table">
-                <thead>
-                  <tr>{result.columns.map((col, cIdx) => <th key={cIdx}>{col}</th>)}</tr>
-                </thead>
-                <tbody>
-                  {result.rows && result.rows.slice(0, 100).map((row, rIdx) => (
-                    <tr key={rIdx}>{row.map((cell, cIdx) => <td key={cIdx}>{cell === null ? 'NULL' : String(cell)}</td>)}</tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // Login View
 function LoginView() {
@@ -189,31 +19,21 @@ function LoginView() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await login({ username, password });
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
   return (
-    <div className="dialog-overlay">
-      <div className="dialog-box" style={{ maxWidth: '350px' }}>
-        <h2 className="dialog-title">🔑 Login to InfraDB</h2>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Username</label>
-            <input className="form-input" value={username} onChange={e => setUsername(e.target.value)} required />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Password</label>
-            <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)} required />
-          </div>
-          {error && <div className="error-message">{error}</div>}
-          <button className="btn btn-primary" style={{ width: '100%' }} type="submit">Login</button>
-        </form>
+    <div className="modal-overlay" style={{backgroundColor: '#1e1e1e'}}>
+      <div className="modal-content" style={{maxWidth: '320px', textAlign: 'center'}}>
+        <VscAccount size={48} style={{color: '#007acc', marginBottom: '15px'}} />
+        <h2 className="dialog-title" style={{color: '#fff', fontSize: '18px', marginBottom: '20px'}}>InfraDB Login</h2>
+        <div className="form-group">
+          <input className="form-input" placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
+        </div>
+        <div className="form-group">
+          <input className="form-input" type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
+        </div>
+        {error && <div className="error-message" style={{color: '#f48771', fontSize: '12px', marginTop: '10px'}}>{error}</div>}
+        <button className="btn-primary full-width" style={{marginTop: '20px', padding: '8px'}} onClick={async () => {
+          try { await login({ username, password }); } catch (err) { setError(err.message); }
+        }}>Sign In</button>
       </div>
     </div>
   );
@@ -225,67 +45,68 @@ export default function App() {
   
   const [tabs, setTabs] = useState([{ id: '1', title: 'query1.sql', sql: 'SELECT * FROM users;', dirty: false }]);
   const [activeTabId, setActiveTabId] = useState('1');
+  const [activeSidebar, setActiveSidebar] = useState('db');
+  const [showAI, setShowAI] = useState(false);
   const [connected, setConnected] = useState(false);
   const [schema, setSchema] = useState([]);
-  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState('schema');
-  const [bottomTab, setBottomTab] = useState('results');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiResult, setAiResult] = useState('');
+
+  // Resizable States
+  const [sidebarWidth, setSidebarWidth] = useState(260);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(280);
+  const [aiPanelWidth, setAiPanelWidth] = useState(320);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
 
-  useEffect(() => {
-    if (user) fetchHistory();
-  }, [user, fetchHistory]);
-
-  const fetchSchemaData = async () => {
+  const fetchSchemaData = useCallback(async () => {
     try {
       const result = await getSchema();
       setSchema(result.tables || []);
     } catch (err) {
       console.error('Schema error:', err);
     }
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchHistory();
+      if (connected) fetchSchemaData();
+    }
+  }, [user, connected, fetchHistory, fetchSchemaData]);
+
+  const updateSQL = (id, value) => {
+    setTabs(tabs.map(t => t.id === id ? { ...t, sql: value, dirty: true } : t));
   };
 
   const handleRun = async () => {
     if (!activeTab?.sql.trim()) return;
     try {
       await executeQuery(activeTab.sql);
-      setBottomTab('results');
-      setTabs(tabs.map(t => t.id === activeTabId ? { ...t, dirty: false } : t));
-    } catch (err) {
-      if (err.message.toLowerCase().includes('no active connection')) {
-        setConnected(false);
-        setConnectionDialogOpen(true);
-      }
-    }
-  };
-
-  const handleAI = async () => {
-    const prompt = window.prompt("What query do you want to generate?");
-    if (!prompt) return;
-    try {
-      const result = await suggestQuery(prompt);
-      if (result.sql) {
-        updateSQL(activeTabId, result.sql);
-      }
-    } catch (err) {
-      alert(err.message);
-    }
-  };
-
-  const handleLoadSample = async () => {
-    try {
-      await axiosInstance.post('/api/load-sample-db/');
       setConnected(true);
-      fetchSchemaData();
-      fetchHistory();
+      if (activeTab.sql.toLowerCase().includes('create') || activeTab.sql.toLowerCase().includes('drop') || activeTab.sql.toLowerCase().includes('alter')) {
+        fetchSchemaData();
+      }
     } catch (err) {
-      alert(err.message);
+      if (err.message.toLowerCase().includes('no active connection')) setConnected(false);
     }
   };
 
-  const updateSQL = (id, value) => {
-    setTabs(tabs.map(t => t.id === id ? { ...t, sql: value, dirty: true } : t));
+  const handleAISuggest = async () => {
+    if (!aiPrompt) return;
+    try {
+      const res = await suggestQuery(aiPrompt);
+      setAiResult(res.sql);
+    } catch (err) { alert(err.message); }
+  };
+
+  const handleSampleDB = async () => {
+    try {
+      await loadSampleDB();
+      setConnected(true);
+      await fetchSchemaData();
+      await fetchHistory();
+    } catch (err) { alert(err.message); }
   };
 
   const addTab = (sql = '', title = '') => {
@@ -294,67 +115,283 @@ export default function App() {
     setActiveTabId(newId);
   };
 
-  if (authLoading) return <div className="app-root flex-center"><span className="spinner"></span></div>;
+  // RESIZING LOGIC
+  const startResizingSidebar = (e) => {
+    e.preventDefault();
+    const onMouseMove = (moveEvent) => {
+      setSidebarWidth(Math.max(150, Math.min(600, moveEvent.pageX - 48))); // Offset for activity bar
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  const startResizingBottom = (e) => {
+    e.preventDefault();
+    const onMouseMove = (moveEvent) => {
+      const newHeight = window.innerHeight - moveEvent.pageY - 22; // Offset for status bar
+      setBottomPanelHeight(Math.max(100, Math.min(600, newHeight)));
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  const startResizingAI = (e) => {
+    e.preventDefault();
+    const onMouseMove = (moveEvent) => {
+      const newWidth = window.innerWidth - moveEvent.pageX;
+      setAiPanelWidth(Math.max(200, Math.min(600, newWidth)));
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  if (authLoading) return <div className="app-container flex-center" style={{color: '#969696'}}>Initializing InfraDB...</div>;
   if (!user) return <LoginView />;
 
   return (
-    <div className="app-root">
-      {/* Title Bar / Header (VS Code Style) */}
-      <div className="toolbar header-toolbar">
-        <span className="app-title">🗄️ InfraDB Desktop</span>
-        
-        <div className="toolbar-section">
-          <button className="toolbar-btn" onClick={() => setConnectionDialogOpen(true)} title="Connect Database"><FaDatabase /> Connect</button>
-          <button className="toolbar-btn" onClick={handleLoadSample} title="Load Sample Data"><FaFlask /> Sample DB</button>
-        </div>
-
-        <div className="toolbar-section">
-          <button className="toolbar-btn run-btn" onClick={handleRun} disabled={dbLoading || !connected} title="Run SQL"><FaPlay /> Run</button>
-          <button className="toolbar-btn ai-btn" onClick={handleAI} title="AI SQL Assistant"><FaRobot /> AI Suggest</button>
-        </div>
-
-        <div className="toolbar-section right-aligned">
-          <div className="connection-status">
-            <div className={`status-dot ${connected ? 'status-ok' : 'status-bad'}`}></div>
-            <span>{connected ? 'Connected' : 'Offline'}</span>
+    <div className="app-container">
+      {/* VS Code Unified Title Bar */}
+      <div className="title-bar">
+        <div className="title-bar-content">
+          <div className="menu-item">File</div>
+          <div className="menu-item">Edit</div>
+          <div className="menu-item">Selection</div>
+          <div className="menu-item">View</div>
+          <div className="menu-item">Go</div>
+          <div className="menu-item">Run</div>
+          <div className="menu-item">Terminal</div>
+          <div className="menu-item">Help</div>
+          <div style={{ flex: 1, textAlign: 'center', pointerEvents: 'none', color: '#969696', fontSize: '11px' }}>
+            {activeTab?.title} - InfraDB Desktop
           </div>
-          <button className="toolbar-btn icon-only" title="Settings"><FaCog /></button>
-          <button className="toolbar-btn icon-only logout-btn" onClick={logout} title="Sign Out"><FaSignOutAlt /></button>
+          <div className="status-item" style={{marginRight: '110px'}}>
+             <div className={`dot ${connected ? 'dot-green' : 'dot-red'}`} />
+             <span style={{fontSize: '11px', color: connected ? '#89d185' : '#f48771'}}>
+               {connected ? 'Connected' : 'Disconnected'}
+             </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Toolbar */}
+      <div className="toolbar">
+        <button className="toolbar-btn btn-run" onClick={handleRun} disabled={dbLoading} title="Execute Query (Ctrl+Enter)">
+          <VscPlay /> Run
+        </button>
+        <button className="toolbar-btn btn-sample" onClick={handleSampleDB} title="Load Demo Data">
+          <VscBeaker /> Sample DB
+        </button>
+        <button className="toolbar-btn btn-ai" onClick={() => setShowAI(!showAI)}>
+          {showAI ? <VscLayoutSidebarRight /> : <VscLayoutSidebarRightOff />} AI Copilot
+        </button>
+        <div style={{marginLeft: 'auto', display: 'flex', gap: '10px', paddingRight: '10px'}}>
+           <button className="toolbar-btn" onClick={logout} title="Sign Out"><VscAccount /> Logout</button>
         </div>
       </div>
 
       <div className="workbench">
-        <div className="sidebar">
-          <div className="sidebar-tabs">
-            <button className={`sidebar-tab ${sidebarTab === 'schema' ? 'active' : ''}`} onClick={() => setSidebarTab('schema')}>📊 Schema</button>
-            <button className={`sidebar-tab ${sidebarTab === 'history' ? 'active' : ''}`} onClick={() => setSidebarTab('history')}>📜 History</button>
+        {/* Activity Bar */}
+        <div className="activity-bar">
+          <div className={`activity-icon ${activeSidebar === 'db' ? 'active' : ''}`} onClick={() => setActiveSidebar('db')} title="Explorer">
+            <VscDatabase />
           </div>
-          {sidebarTab === 'schema' ? <SchemaPanel schema={schema} loading={dbLoading} /> : <HistoryPanel history={history} onLoad={(q) => addTab(q, 'history.sql')} />}
+          <div className={`activity-icon ${activeSidebar === 'history' ? 'active' : ''}`} onClick={() => setActiveSidebar('history')} title="History">
+            <VscHistory />
+          </div>
+          <div className={`activity-icon ${activeSidebar === 'search' ? 'active' : ''}`} onClick={() => setActiveSidebar('search')} title="Search">
+            <VscSearch />
+          </div>
+          <div className="activity-icon" title="Source Control"><VscSourceControl /></div>
+          <div className="activity-icon" title="Remote Explorer"><VscRemoteExplorer /></div>
+          <div style={{marginTop: 'auto'}}>
+            <div className="activity-icon" title="Settings"><VscSettingsGear /></div>
+          </div>
         </div>
 
-        <div className="main-pane">
-          <div className="tab-strip">
-            {tabs.map(tab => (
-              <button key={tab.id} className={`tab-item ${tab.id === activeTabId ? 'active' : ''}`} onClick={() => setActiveTabId(tab.id)}>
-                {tab.title} {tab.dirty && <span className="dirty-dot">●</span>}
-                <span className="tab-close" onClick={(e) => { e.stopPropagation(); setTabs(tabs.filter(t => t.id !== tab.id)); }}><FaTimes /></span>
-              </button>
-            ))}
-            <button className="tab-add" onClick={() => addTab()}><FaPlus /></button>
+        {/* Sidebar */}
+        <div className="sidebar" style={{ width: sidebarWidth }}>
+          <div className="sidebar-header">
+            {activeSidebar === 'db' ? 'EXPLORER: DATABASE' : 'TIMELINE: HISTORY'}
           </div>
-          <div className="editor-pane">
-            <textarea className="sql-editor" value={activeTab?.sql || ''} onChange={(e) => updateSQL(activeTabId, e.target.value)} spellCheck="false" placeholder="Enter SQL query here..." />
-          </div>
-          <div className="bottom-pane">
-            <div className="bottom-tabs">
-              <button className={`bottom-tab ${bottomTab === 'results' ? 'active' : ''}`} onClick={() => setBottomTab('results')}>Results</button>
-            </div>
-            {bottomTab === 'results' && <ResultsPanel results={results} error={dbError} />}
+          <div className="sidebar-content scrollbar">
+            {activeSidebar === 'db' ? (
+              <div className="explorer-db-section">
+                <div className="explorer-db-item" style={{fontWeight: 'bold', color: '#fff'}}>
+                  <VscChevronDown /> <VscFolderOpened color="#007acc" /> CURRENT DATABASE
+                </div>
+                <div className="explorer-table-list">
+                  {schema.length > 0 ? schema.map((t, i) => (
+                    <div key={i} className="explorer-db-item" title={t.name}>
+                      <VscChevronRight size={12}/> <VscSymbolMethod size={14} color="#4fb6cc"/> {t.name}
+                    </div>
+                  )) : (
+                    <div style={{padding: '10px 25px', fontSize: '11px', color: '#666', fontStyle: 'italic'}}>
+                      No tables found. Click 'Sample DB' to begin.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              history.map((h, i) => (
+                <div key={i} className="explorer-db-item" onClick={() => addTab(h.query, 'history.sql')} title={h.query}>
+                  <VscCode size={12} style={{minWidth: '12px'}}/> 
+                  <span style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px'}}>
+                    {h.query}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
+
+        {/* Sidebar Resizer */}
+        <div className="resizer-x" onMouseDown={startResizingSidebar} />
+
+        {/* Main Editor Area */}
+        <div className="main-area">
+          <div className="editor-container">
+            <div className="tab-bar">
+              {tabs.map(t => (
+                <div key={t.id} className={`tab ${t.id === activeTabId ? 'active' : ''}`} onClick={() => setActiveTabId(t.id)}>
+                  <span style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
+                    <VscCode color="#4fb6cc" size={14}/> {t.title}
+                  </span>
+                  {t.dirty && <span style={{color: '#f48771', fontSize: '10px', marginLeft: '5px'}}>●</span>}
+                  <div className="tab-close" onClick={(e) => { 
+                    e.stopPropagation(); 
+                    if (tabs.length > 1) setTabs(tabs.filter(tab => tab.id !== t.id)); 
+                  }}>
+                    <VscClose size={14}/>
+                  </div>
+                </div>
+              ))}
+              <div className="tab-plus" onClick={() => addTab()}><VscAdd /></div>
+            </div>
+            <div className="sql-viewport">
+              <textarea 
+                className="sql-editor" 
+                value={activeTab?.sql || ''} 
+                onChange={(e) => updateSQL(activeTabId, e.target.value)}
+                spellCheck="false"
+                placeholder="-- Write your SQL query here..."
+              />
+            </div>
+          </div>
+
+          {/* Bottom Panel */}
+          <div className="bottom-panel" style={{ height: bottomPanelHeight }}>
+            <div className="resizer-y" onMouseDown={startResizingBottom} />
+            <div className="panel-tabs">
+              <div className="panel-tab active">RESULTS</div>
+              <div className="panel-tab">OUTPUT</div>
+              <div className="panel-tab">DEBUG CONSOLE <VscDebugConsole style={{marginLeft: '4px', verticalAlign: 'middle'}}/></div>
+              <div className="panel-tab">TERMINAL <VscTerminal style={{marginLeft: '4px', verticalAlign: 'middle'}}/></div>
+            </div>
+            <div className="panel-content scrollbar">
+               <div className="results-container">
+                 {dbError ? (
+                   <div style={{color: '#f48771', fontSize: '13px', padding: '10px', border: '1px solid #454545', background: '#252526'}}>
+                     Error: {dbError}
+                   </div>
+                 ) : (
+                   results?.results?.map((res, i) => (
+                     <div key={i} style={{marginBottom: '20px'}}>
+                       <div style={{fontSize: '11px', color: '#89d185', marginBottom: '8px', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '8px'}}>
+                         <VscSymbolMethod size={12}/> {res.message} 
+                         {res.rows && <span style={{color: '#969696'}}>• {res.rows.length} rows returned</span>}
+                       </div>
+                       {res.columns && res.columns.length > 0 && (
+                         <div style={{overflowX: 'auto'}}>
+                           <table className="data-table">
+                             <thead>
+                               <tr>{res.columns.map((c, j) => <th key={j}>{c}</th>)}</tr>
+                             </thead>
+                             <tbody>
+                               {res.rows.slice(0, 500).map((r, j) => (
+                                 <tr key={j}>{r.map((cell, k) => <td key={k}>{cell === null ? 'NULL' : String(cell)}</td>)}</tr>
+                               ))}
+                             </tbody>
+                           </table>
+                         </div>
+                       )}
+                     </div>
+                   )) || <div style={{color: '#666', fontSize: '12px', padding: '10px'}}>No active query results. Execute a query to see data.</div>
+                 )}
+               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* AI Assistant Panel */}
+        {showAI && (
+          <>
+            <div className="resizer-x" onMouseDown={startResizingAI} />
+            <div className="ai-panel" style={{ width: aiPanelWidth }}>
+              <div className="ai-header">
+                AI ASSISTANT <VscClose style={{cursor: 'pointer'}} onClick={() => setShowAI(false)} />
+              </div>
+              <div className="ai-content scrollbar">
+                 <div style={{fontSize: '12px', color: '#858585', marginBottom: '15px', lineHeight: '1.5'}}>
+                   <VscFeedback color="#e2b342"/> Describe the database operation. The AI will generate the SQL query for you.
+                 </div>
+                 
+                 <div className="ai-chat-bubble">
+                   <div style={{fontSize: '11px', color: '#969696', marginBottom: '10px'}}>How can I help you today?</div>
+                   <textarea 
+                     className="ai-textarea" 
+                     placeholder="e.g. Find all users who live in New York..."
+                     value={aiPrompt}
+                     onChange={e => setAiPrompt(e.target.value)}
+                   />
+                   <button className="btn-primary full-width mt-10" onClick={handleAISuggest}>
+                     Generate SQL
+                   </button>
+                 </div>
+
+                 {aiResult && (
+                   <div style={{marginTop: '20px', borderTop: '1px solid #454545', paddingTop: '15px'}}>
+                      <div style={{fontSize: '10px', color: '#e2b342', marginBottom: '10px', fontWeight: 'bold'}}>SUGGESTED SQL:</div>
+                      <div style={{background: '#1e1e1e', padding: '10px', border: '1px solid #454545', fontFamily: 'Consolas, monospace', fontSize: '12px', wordBreak: 'break-all', color: '#d4d4d4'}}>
+                        {aiResult}
+                      </div>
+                      <button 
+                        className="btn-primary full-width" 
+                        style={{marginTop: '10px', background: '#37373d'}}
+                        onClick={() => updateSQL(activeTabId, aiResult)}
+                      >
+                        Insert into Editor
+                      </button>
+                   </div>
+                 )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
-      <ConnectionDialog isOpen={connectionDialogOpen} onClose={() => setConnectionDialogOpen(false)} onConnect={() => { setConnected(true); fetchSchemaData(); fetchHistory(); }} />
+      {/* Status Bar */}
+      <div className="status-bar">
+        <div className="status-item">
+          <VscRemoteExplorer /> <span>Render Cloud</span>
+        </div>
+        <div className="status-item">
+          <span>UTF-8</span>
+          <span>SQL</span>
+          <VscFeedback />
+        </div>
+      </div>
     </div>
   );
 }
