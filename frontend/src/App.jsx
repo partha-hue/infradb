@@ -4,7 +4,8 @@ import {
   VscAdd, VscClose, VscChevronRight, VscChevronDown, 
   VscSymbolMethod, VscTerminal, VscLayoutSidebarRightOff, VscLayoutSidebarRight,
   VscAccount, VscDebugConsole, VscCode, VscFeedback, VscBeaker,
-  VscFolderOpened, VscRemoteExplorer, VscSourceControl, VscLink
+  VscFolderOpened, VscRemoteExplorer, VscSourceControl, VscLink,
+  VscSymbolField
 } from "react-icons/vsc";
 import { connectDB, getSchema, suggestQuery, runQuery as runQueryService, loadSampleDB } from './api/dbService';
 import { useAuth } from './hooks/useAuth';
@@ -30,9 +31,6 @@ function ConnectionDialog({ isOpen, onClose, onConnect }) {
     setError('');
     try {
       const payload = { ...config, db_type: dbType };
-      if (dbType === 'mysql' && !payload.port) payload.port = 3306;
-      if (dbType === 'postgresql' && !payload.port) payload.port = 5432;
-      
       const result = await connectDB(payload);
       onConnect(result);
       onClose();
@@ -48,71 +46,43 @@ function ConnectionDialog({ isOpen, onClose, onConnect }) {
   return (
     <div className="modal-overlay">
       <div className="modal-content" style={{maxWidth: '400px'}}>
-        <div className="ai-header" style={{marginBottom: '20px'}}>
+        <div className="sidebar-header" style={{display: 'flex', justifyContent: 'space-between', padding: '0 0 15px 0'}}>
           <span>CONNECT TO DATABASE</span>
           <VscClose style={{cursor: 'pointer'}} onClick={onClose} />
         </div>
         
         <div className="form-group">
           <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>DATABASE TYPE</label>
-          <select 
-            className="form-input" 
-            style={{background: '#3c3c3c'}}
-            value={dbType} 
-            onChange={(e) => setDbType(e.target.value)}
-          >
+          <select className="form-input" value={dbType} onChange={(e) => setDbType(e.target.value)}>
             <option value="sqlite">SQLite (Local)</option>
-            <option value="mysql">MySQL (Cloud/Remote)</option>
-            <option value="postgresql">PostgreSQL (Cloud/Remote)</option>
+            <option value="mysql">MySQL (Remote)</option>
+            <option value="postgresql">PostgreSQL (Remote)</option>
           </select>
         </div>
 
         {dbType === 'sqlite' ? (
           <div className="form-group">
             <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>DATABASE FILE</label>
-            <input 
-              className="form-input" 
-              value={config.database} 
-              onChange={e => setConfig({...config, database: e.target.value})} 
-            />
+            <input className="form-input" value={config.database} onChange={e => setConfig({...config, database: e.target.value})} />
           </div>
         ) : (
           <>
             <div className="flex-row gap-10">
-              <div className="form-group" style={{flex: 2}}>
-                <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>HOST</label>
-                <input className="form-input" value={config.host} onChange={e => setConfig({...config, host: e.target.value})} />
-              </div>
-              <div className="form-group" style={{flex: 1}}>
-                <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>PORT</label>
-                <input className="form-input" placeholder={dbType === 'mysql' ? '3306' : '5432'} value={config.port} onChange={e => setConfig({...config, port: e.target.value})} />
-              </div>
+              <input className="form-input" placeholder="Host" value={config.host} onChange={e => setConfig({...config, host: e.target.value})} />
+              <input className="form-input" style={{width: '80px'}} placeholder="Port" value={config.port} onChange={e => setConfig({...config, port: e.target.value})} />
             </div>
             <div className="flex-row gap-10">
-              <div className="form-group" style={{flex: 1}}>
-                <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>USER</label>
-                <input className="form-input" value={config.user} onChange={e => setConfig({...config, user: e.target.value})} />
-              </div>
-              <div className="form-group" style={{flex: 1}}>
-                <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>PASSWORD</label>
-                <input className="form-input" type="password" value={config.password} onChange={e => setConfig({...config, password: e.target.value})} />
-              </div>
+              <input className="form-input" placeholder="User" value={config.user} onChange={e => setConfig({...config, user: e.target.value})} />
+              <input className="form-input" type="password" placeholder="Password" value={config.password} onChange={e => setConfig({...config, password: e.target.value})} />
             </div>
-            <div className="form-group">
-              <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>DATABASE NAME</label>
-              <input className="form-input" value={config.database} onChange={e => setConfig({...config, database: e.target.value})} />
-            </div>
+            <input className="form-input" placeholder="Database Name" value={config.database} onChange={e => setConfig({...config, database: e.target.value})} />
           </>
         )}
 
-        {error && <div style={{color: '#f48771', fontSize: '12px', marginBottom: '15px'}}>{error}</div>}
-        
-        <div className="flex-row justify-between mt-10">
-          <button className="btn-vscode" style={{background: '#3a3d41'}} onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleConnect} disabled={loading}>
-            {loading ? 'Connecting...' : 'Connect'}
-          </button>
-        </div>
+        {error && <div style={{color: '#f48771', fontSize: '12px', marginTop: '10px'}}>{error}</div>}
+        <button className="btn-primary full-width" style={{marginTop: '20px'}} onClick={handleConnect} disabled={loading}>
+          {loading ? 'Connecting...' : 'Connect'}
+        </button>
       </div>
     </div>
   );
@@ -130,20 +100,40 @@ function LoginView() {
       <div className="modal-content" style={{maxWidth: '320px', textAlign: 'center'}}>
         <VscAccount size={48} style={{color: '#007acc', marginBottom: '15px'}} />
         <h2 className="dialog-title" style={{color: '#fff', fontSize: '18px', marginBottom: '20px'}}>InfraDB Login</h2>
-        <div className="form-group">
-          <input className="form-input" placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
-        </div>
-        <div className="form-group">
-          <input className="form-input" type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
-        </div>
-        {error && <div className="error-message" style={{color: '#f48771', fontSize: '12px', marginTop: '10px'}}>{error}</div>}
-        <button className="btn-primary full-width" style={{marginTop: '20px', padding: '8px'}} onClick={async () => {
+        <input className="form-input" placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
+        <input className="form-input" type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} />
+        {error && <div style={{color: '#f48771', fontSize: '12px', marginTop: '10px'}}>{error}</div>}
+        <button className="btn-primary full-width" style={{marginTop: '20px'}} onClick={async () => {
           try { await login({ username, password }); } catch (err) { setError(err.message); }
         }}>Sign In</button>
       </div>
     </div>
   );
 }
+
+// Schema Tree Components
+const TableNode = ({ table, onTableClick }) => {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div>
+      <div className="explorer-db-item" onClick={() => setExpanded(!expanded)} onDoubleClick={() => onTableClick(table.name)}>
+        {expanded ? <VscChevronDown size={12}/> : <VscChevronRight size={12}/>}
+        <VscSymbolMethod size={14} color="#4fb6cc"/>
+        <span style={{fontSize: '13px'}}>{table.name}</span>
+      </div>
+      {expanded && (
+        <div style={{paddingLeft: '25px'}}>
+          {table.columns.map((col, i) => (
+            <div key={i} className="explorer-db-item" style={{cursor: 'default'}}>
+              <VscSymbolField size={12} color="#858585"/>
+              <span style={{fontSize: '12px', color: '#858585'}}>{col}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function App() {
   const { user, logout, loading: authLoading } = useAuth();
@@ -159,10 +149,8 @@ export default function App() {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiResult, setAiResult] = useState('');
 
-  // Resizable States
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(280);
-  const [aiPanelWidth, setAiPanelWidth] = useState(320);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
 
@@ -170,9 +158,7 @@ export default function App() {
     try {
       const result = await getSchema();
       setSchema(result.tables || []);
-    } catch (err) {
-      console.error('Schema error:', err);
-    }
+    } catch (err) { console.error('Schema error:', err); }
   }, []);
 
   useEffect(() => {
@@ -186,17 +172,22 @@ export default function App() {
     setTabs(tabs.map(t => t.id === id ? { ...t, sql: value, dirty: true } : t));
   };
 
-  const handleRun = async () => {
-    if (!activeTab?.sql.trim()) return;
+  const handleRun = async (sqlOverride = null) => {
+    const queryToRun = sqlOverride || activeTab?.sql;
+    if (!queryToRun?.trim()) return;
     try {
-      await executeQuery(activeTab.sql);
+      await executeQuery(queryToRun);
       setConnected(true);
-      if (activeTab.sql.toLowerCase().includes('create') || activeTab.sql.toLowerCase().includes('drop') || activeTab.sql.toLowerCase().includes('alter')) {
-        fetchSchemaData();
-      }
+      fetchSchemaData();
     } catch (err) {
-      if (err.message.toLowerCase().includes('no active connection')) setConnected(false);
+      if (err.message?.toLowerCase().includes('no active connection')) setConnected(false);
     }
+  };
+
+  const handleTableClick = (tableName) => {
+    const query = `SELECT * FROM ${tableName} LIMIT 100;`;
+    updateSQL(activeTabId, query);
+    handleRun(query);
   };
 
   const handleAISuggest = async () => {
@@ -207,313 +198,131 @@ export default function App() {
     } catch (err) { alert(err.message); }
   };
 
-  const handleSampleDB = async () => {
-    try {
-      await loadSampleDB();
-      setConnected(true);
-      await fetchSchemaData();
-      await fetchHistory();
-    } catch (err) { alert(err.message); }
-  };
-
-  const onConnectSuccess = () => {
-    setConnected(true);
-    fetchSchemaData();
-    fetchHistory();
-  };
-
-  const addTab = (sql = '', title = '') => {
-    const newId = String(Date.now());
-    setTabs([...tabs, { id: newId, title: title || `query${tabs.length + 1}.sql`, sql, dirty: false }]);
-    setActiveTabId(newId);
-  };
-
-  // RESIZING LOGIC
   const startResizingSidebar = (e) => {
     e.preventDefault();
-    const onMouseMove = (moveEvent) => {
-      setSidebarWidth(Math.max(150, Math.min(600, moveEvent.pageX - 48)));
-    };
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
+    const onMouseMove = (m) => setSidebarWidth(Math.max(150, Math.min(600, m.pageX - 48)));
+    const onMouseUp = () => { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); };
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   };
 
   const startResizingBottom = (e) => {
     e.preventDefault();
-    const onMouseMove = (moveEvent) => {
-      const newHeight = window.innerHeight - moveEvent.pageY - 22;
-      setBottomPanelHeight(Math.max(100, Math.min(600, newHeight)));
-    };
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
+    const onMouseMove = (m) => setBottomPanelHeight(Math.max(100, Math.min(600, window.innerHeight - m.pageY - 22)));
+    const onMouseUp = () => { document.removeEventListener('mousemove', onMouseMove); document.removeEventListener('mouseup', onMouseUp); };
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
   };
 
-  const startResizingAI = (e) => {
-    e.preventDefault();
-    const onMouseMove = (moveEvent) => {
-      const newWidth = window.innerWidth - moveEvent.pageX;
-      setAiPanelWidth(Math.max(200, Math.min(600, newWidth)));
-    };
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  };
-
-  if (authLoading) return <div className="app-container flex-center" style={{color: '#969696'}}>Initializing InfraDB...</div>;
+  if (authLoading) return <div className="app-container flex-center">Initializing...</div>;
   if (!user) return <LoginView />;
 
   return (
     <div className="app-container">
-      {/* VS Code Unified Title Bar */}
+      {/* Title Bar */}
       <div className="title-bar">
         <div className="title-bar-content">
-          <div className="menu-item">File</div>
-          <div className="menu-item">Edit</div>
-          <div className="menu-item">Selection</div>
-          <div className="menu-item">View</div>
-          <div className="menu-item">Go</div>
-          <div className="menu-item">Run</div>
-          <div className="menu-item">Terminal</div>
-          <div className="menu-item">Help</div>
-          <div style={{ flex: 1, textAlign: 'center', pointerEvents: 'none', color: '#969696', fontSize: '11px' }}>
-            {activeTab?.title} - InfraDB Desktop
-          </div>
-          <div className="status-item" style={{marginRight: '110px'}}>
-             <div className={`dot ${connected ? 'dot-green' : 'dot-red'}`} />
-             <span style={{fontSize: '11px', color: connected ? '#89d185' : '#f48771'}}>
-               {connected ? 'Connected' : 'Disconnected'}
-             </span>
-          </div>
+          <div className="menu-item">File</div><div className="menu-item">Edit</div><div className="menu-item">View</div><div className="menu-item">Help</div>
+          <div style={{ flex: 1, textAlign: 'center', color: '#969696', fontSize: '11px' }}>{activeTab?.title} - InfraDB</div>
+          <div className={`dot ${connected ? 'dot-green' : 'dot-red'}`} style={{marginRight: '10px'}} />
         </div>
       </div>
 
-      {/* Main Toolbar */}
+      {/* Toolbar */}
       <div className="toolbar">
-        <button className="toolbar-btn" onClick={() => setIsConnectModalOpen(true)} title="Connect to Database">
-          <VscLink /> Connect
-        </button>
-        <button className="toolbar-btn btn-run" onClick={handleRun} disabled={dbLoading} title="Execute Query (Ctrl+Enter)">
-          <VscPlay /> Run
-        </button>
-        <button className="toolbar-btn btn-sample" onClick={handleSampleDB} title="Load Demo Data">
-          <VscBeaker /> Sample DB
-        </button>
-        <button className="toolbar-btn btn-ai" onClick={() => setShowAI(!showAI)}>
-          {showAI ? <VscLayoutSidebarRight /> : <VscLayoutSidebarRightOff />} AI Copilot
-        </button>
-        <div style={{marginLeft: 'auto', display: 'flex', gap: '10px', paddingRight: '10px'}}>
-           <button className="toolbar-btn" onClick={logout} title="Sign Out"><VscAccount /> Logout</button>
-        </div>
+        <button className="toolbar-btn" onClick={() => setIsConnectModalOpen(true)}><VscLink /> Connect</button>
+        <button className="toolbar-btn btn-run" onClick={() => handleRun()} disabled={dbLoading}><VscPlay /> Run</button>
+        <button className="toolbar-btn" onClick={async () => { await loadSampleDB(); setConnected(true); fetchSchemaData(); }}><VscBeaker /> Sample DB</button>
+        <button className="toolbar-btn" style={{color: '#e2b342'}} onClick={() => setShowAI(!showAI)}><VscLayoutSidebarRight /> AI Copilot</button>
+        <button className="toolbar-btn" style={{marginLeft: 'auto'}} onClick={logout}><VscAccount /> Logout</button>
       </div>
 
       <div className="workbench">
-        {/* Activity Bar */}
         <div className="activity-bar">
-          <div className={`activity-icon ${activeSidebar === 'db' ? 'active' : ''}`} onClick={() => setActiveSidebar('db')} title="Explorer">
-            <VscDatabase />
-          </div>
-          <div className={`activity-icon ${activeSidebar === 'history' ? 'active' : ''}`} onClick={() => setActiveSidebar('history')} title="History">
-            <VscHistory />
-          </div>
-          <div className={`activity-icon ${activeSidebar === 'search' ? 'active' : ''}`} onClick={() => setActiveSidebar('search')} title="Search">
-            <VscSearch />
-          </div>
-          <div className="activity-icon" title="Source Control"><VscSourceControl /></div>
-          <div className="activity-icon" title="Remote Explorer"><VscRemoteExplorer /></div>
-          <div style={{marginTop: 'auto'}}>
-            <div className="activity-icon" title="Settings"><VscSettingsGear /></div>
-          </div>
+          <div className={`activity-icon ${activeSidebar === 'db' ? 'active' : ''}`} onClick={() => setActiveSidebar('db')}><VscDatabase /></div>
+          <div className={`activity-icon ${activeSidebar === 'history' ? 'active' : ''}`} onClick={() => setActiveSidebar('history')}><VscHistory /></div>
+          <div className="activity-icon" style={{marginTop: 'auto'}}><VscSettingsGear /></div>
         </div>
 
-        {/* Sidebar */}
         <div className="sidebar" style={{ width: sidebarWidth }}>
-          <div className="sidebar-header">
-            {activeSidebar === 'db' ? 'EXPLORER: DATABASE' : 'TIMELINE: HISTORY'}
-          </div>
+          <div className="sidebar-header">{activeSidebar === 'db' ? 'Explorer' : 'History'}</div>
           <div className="sidebar-content scrollbar">
             {activeSidebar === 'db' ? (
-              <div className="explorer-db-section">
+              <div>
                 <div className="explorer-db-item" style={{fontWeight: 'bold', color: '#fff'}}>
-                  <VscChevronDown /> <VscFolderOpened color="#007acc" /> CURRENT DATABASE
+                  <VscChevronDown /> <VscDatabase color="#007acc" size={14} /> CURRENT DATABASE
                 </div>
-                <div className="explorer-table-list">
-                  {schema.length > 0 ? schema.map((t, i) => (
-                    <div key={i} className="explorer-db-item" title={t.name}>
-                      <VscChevronRight size={12}/> <VscSymbolMethod size={14} color="#4fb6cc"/> {t.name}
-                    </div>
-                  )) : (
-                    <div style={{padding: '10px 25px', fontSize: '11px', color: '#666', fontStyle: 'italic'}}>
-                      No tables found. Click 'Connect' or 'Sample DB'.
-                    </div>
-                  )}
+                <div style={{paddingTop: '5px'}}>
+                  {schema.map((t, i) => (
+                    <TableNode key={i} table={t} onTableClick={handleTableClick} />
+                  ))}
                 </div>
               </div>
             ) : (
               history.map((h, i) => (
-                <div key={i} className="explorer-db-item" onClick={() => addTab(h.query, 'history.sql')} title={h.query}>
-                  <VscCode size={12} style={{minWidth: '12px'}}/> 
-                  <span style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '11px'}}>
-                    {h.query}
-                  </span>
+                <div key={i} className="explorer-db-item" onClick={() => updateSQL(activeTabId, h.query)}>
+                  <VscCode size={12}/> <span style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>{h.query}</span>
                 </div>
               ))
             )}
           </div>
         </div>
 
-        {/* Sidebar Resizer */}
         <div className="resizer-x" onMouseDown={startResizingSidebar} />
 
-        {/* Main Editor Area */}
         <div className="main-area">
           <div className="editor-container">
             <div className="tab-bar">
               {tabs.map(t => (
                 <div key={t.id} className={`tab ${t.id === activeTabId ? 'active' : ''}`} onClick={() => setActiveTabId(t.id)}>
-                  <span style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-                    <VscCode color="#4fb6cc" size={14}/> {t.title}
-                  </span>
-                  {t.dirty && <span style={{color: '#f48771', fontSize: '10px', marginLeft: '5px'}}>●</span>}
-                  <div className="tab-close" onClick={(e) => { 
-                    e.stopPropagation(); 
-                    if (tabs.length > 1) setTabs(tabs.filter(tab => tab.id !== t.id)); 
-                  }}>
-                    <VscClose size={14}/>
-                  </div>
+                  <VscCode color="#4fb6cc" size={14}/> {t.title}
+                  <VscClose size={14} style={{marginLeft: '10px'}} onClick={(e) => { e.stopPropagation(); if (tabs.length > 1) setTabs(tabs.filter(tab => tab.id !== t.id)); }} />
                 </div>
               ))}
-              <div className="tab-plus" onClick={() => addTab()}><VscAdd /></div>
+              <div className="tab-plus" onClick={() => setTabs([...tabs, { id: String(Date.now()), title: 'new.sql', sql: '', dirty: false }])}><VscAdd /></div>
             </div>
-            <div className="sql-viewport">
-              <textarea 
-                className="sql-editor" 
-                value={activeTab?.sql || ''} 
-                onChange={(e) => updateSQL(activeTabId, e.target.value)}
-                spellCheck="false"
-                placeholder="-- Write your SQL query here..."
-              />
-            </div>
+            <textarea className="sql-editor" value={activeTab?.sql} onChange={(e) => updateSQL(activeTabId, e.target.value)} spellCheck="false" placeholder="-- SQL Editor" />
           </div>
 
-          {/* Bottom Panel */}
           <div className="bottom-panel" style={{ height: bottomPanelHeight }}>
             <div className="resizer-y" onMouseDown={startResizingBottom} />
-            <div className="panel-tabs">
-              <div className="panel-tab active">RESULTS</div>
-              <div className="panel-tab">OUTPUT</div>
-              <div className="panel-tab">DEBUG CONSOLE <VscDebugConsole style={{marginLeft: '4px', verticalAlign: 'middle'}}/></div>
-              <div className="panel-tab">TERMINAL <VscTerminal style={{marginLeft: '4px', verticalAlign: 'middle'}}/></div>
-            </div>
+            <div className="panel-tabs"><div className="panel-tab active">RESULTS</div></div>
             <div className="panel-content scrollbar">
                <div className="results-container">
-                 {dbError ? (
-                   <div style={{color: '#f48771', fontSize: '13px', padding: '10px', border: '1px solid #454545', background: '#252526'}}>
-                     Error: {dbError}
-                   </div>
-                 ) : (
-                   results?.results?.map((res, i) => (
-                     <div key={i} style={{marginBottom: '20px'}}>
-                       <div style={{fontSize: '11px', color: '#89d185', marginBottom: '8px', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '8px'}}>
-                         <VscSymbolMethod size={12}/> {res.message} 
-                         {res.rows && <span style={{color: '#969696'}}>• {res.rows.length} rows returned</span>}
-                       </div>
-                       {res.columns && res.columns.length > 0 && (
-                         <div style={{overflowX: 'auto'}}>
-                           <table className="data-table">
-                             <thead>
-                               <tr>{res.columns.map((c, j) => <th key={j}>{c}</th>)}</tr>
-                             </thead>
-                             <tbody>
-                               {res.rows.slice(0, 500).map((r, j) => (
-                                 <tr key={j}>{r.map((cell, k) => <td key={k}>{cell === null ? 'NULL' : String(cell)}</td>)}</tr>
-                               ))}
-                             </tbody>
-                           </table>
-                         </div>
-                       )}
+                 {results?.results?.map((res, i) => (
+                   <div key={i} className="result-block">
+                     <div style={{fontSize: '11px', color: '#89d185', marginBottom: '8px'}}><VscSymbolMethod /> {res.message}</div>
+                     <div className="data-table-wrapper">
+                       <table className="data-table">
+                         <thead><tr>{res.columns?.map((c, j) => <th key={j}>{c}</th>)}</tr></thead>
+                         <tbody>{res.rows?.map((r, j) => <tr key={j}>{r.map((cell, k) => <td key={k}>{cell === null ? 'NULL' : String(cell)}</td>)}</tr>)}</tbody>
+                       </table>
                      </div>
-                   )) || <div style={{color: '#666', fontSize: '12px', padding: '10px'}}>No active query results. Execute a query to see data.</div>
-                 )}
+                   </div>
+                 )) || <div style={{padding: '20px', color: '#666'}}>Ready.</div>}
                </div>
             </div>
           </div>
         </div>
 
-        {/* AI Assistant Panel */}
         {showAI && (
-          <>
-            <div className="resizer-x" onMouseDown={startResizingAI} />
-            <div className="ai-panel" style={{ width: aiPanelWidth }}>
-              <div className="ai-header">
-                AI ASSISTANT <VscClose style={{cursor: 'pointer'}} onClick={() => setShowAI(false)} />
-              </div>
-              <div className="ai-content scrollbar">
-                 <div style={{fontSize: '12px', color: '#858585', marginBottom: '15px', lineHeight: '1.5'}}>
-                   <VscFeedback color="#e2b342"/> Describe the database operation. The AI will generate the SQL query for you.
-                 </div>
-                 
-                 <div className="ai-chat-bubble">
-                   <div style={{fontSize: '11px', color: '#969696', marginBottom: '10px'}}>How can I help you today?</div>
-                   <textarea 
-                     className="ai-textarea" 
-                     placeholder="e.g. Find all users who live in New York..."
-                     value={aiPrompt}
-                     onChange={e => setAiPrompt(e.target.value)}
-                   />
-                   <button className="btn-primary full-width mt-10" onClick={handleAISuggest}>
-                     Generate SQL
-                   </button>
-                 </div>
-
-                 {aiResult && (
-                   <div style={{marginTop: '20px', borderTop: '1px solid #454545', paddingTop: '15px'}}>
-                      <div style={{fontSize: '10px', color: '#e2b342', marginBottom: '10px', fontWeight: 'bold'}}>SUGGESTED SQL:</div>
-                      <div style={{background: '#1e1e1e', padding: '10px', border: '1px solid #454545', fontFamily: 'Consolas, monospace', fontSize: '12px', wordBreak: 'break-all', color: '#d4d4d4'}}>
-                        {aiResult}
-                      </div>
-                      <button 
-                        className="btn-primary full-width" 
-                        style={{marginTop: '10px', background: '#37373d'}}
-                        onClick={() => updateSQL(activeTabId, aiResult)}
-                      >
-                        Insert into Editor
-                      </button>
-                   </div>
-                 )}
-              </div>
+          <div className="ai-panel" style={{ width: 300 }}>
+            <div className="sidebar-header">AI Assistant</div>
+            <div className="panel-content scrollbar" style={{padding: '15px'}}>
+               <textarea className="form-input" style={{height: '100px', resize: 'none'}} placeholder="Describe your query..." value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} />
+               <button className="btn-primary full-width" style={{marginTop: '10px'}} onClick={handleAISuggest}>Generate</button>
+               {aiResult && <div style={{marginTop: '15px', padding: '10px', background: '#1e1e1e', border: '1px solid #454545'}}>{aiResult}</div>}
             </div>
-          </>
+          </div>
         )}
       </div>
 
-      <ConnectionDialog 
-        isOpen={isConnectModalOpen} 
-        onClose={() => setIsConnectModalOpen(false)} 
-        onConnect={onConnectSuccess} 
-      />
-
-      {/* Status Bar */}
       <div className="status-bar">
-        <div className="status-item">
-          <VscRemoteExplorer /> <span>Render Cloud</span>
-        </div>
-        <div className="status-item">
-          <span>UTF-8</span>
-          <span>SQL</span>
-          <VscFeedback />
-        </div>
+        <div className="status-item"><VscRemoteExplorer /> <span>Render Cloud</span></div>
+        <div className="status-item"><span>UTF-8</span><span>SQL</span></div>
       </div>
+
+      <ConnectionDialog isOpen={isConnectModalOpen} onClose={() => setIsConnectModalOpen(false)} onConnect={() => setConnected(true)} />
     </div>
   );
 }
