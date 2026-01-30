@@ -4,13 +4,119 @@ import {
   VscAdd, VscClose, VscChevronRight, VscChevronDown, 
   VscSymbolMethod, VscTerminal, VscLayoutSidebarRightOff, VscLayoutSidebarRight,
   VscAccount, VscDebugConsole, VscCode, VscFeedback, VscBeaker,
-  VscFolderOpened, VscRemoteExplorer, VscSourceControl
+  VscFolderOpened, VscRemoteExplorer, VscSourceControl, VscLink
 } from "react-icons/vsc";
 import { connectDB, getSchema, suggestQuery, runQuery as runQueryService, loadSampleDB } from './api/dbService';
 import { useAuth } from './hooks/useAuth';
 import { useDatabase } from './hooks/useDatabase';
 import axiosInstance from './api/axios';
 import './styles.css';
+
+// Connection Dialog
+function ConnectionDialog({ isOpen, onClose, onConnect }) {
+  const [dbType, setDbType] = useState('sqlite');
+  const [config, setConfig] = useState({
+    database: 'default.db',
+    host: 'localhost',
+    port: '',
+    user: 'root',
+    password: ''
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleConnect = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const payload = { ...config, db_type: dbType };
+      if (dbType === 'mysql' && !payload.port) payload.port = 3306;
+      if (dbType === 'postgresql' && !payload.port) payload.port = 5432;
+      
+      const result = await connectDB(payload);
+      onConnect(result);
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Connection failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content" style={{maxWidth: '400px'}}>
+        <div className="ai-header" style={{marginBottom: '20px'}}>
+          <span>CONNECT TO DATABASE</span>
+          <VscClose style={{cursor: 'pointer'}} onClick={onClose} />
+        </div>
+        
+        <div className="form-group">
+          <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>DATABASE TYPE</label>
+          <select 
+            className="form-input" 
+            style={{background: '#3c3c3c'}}
+            value={dbType} 
+            onChange={(e) => setDbType(e.target.value)}
+          >
+            <option value="sqlite">SQLite (Local)</option>
+            <option value="mysql">MySQL (Cloud/Remote)</option>
+            <option value="postgresql">PostgreSQL (Cloud/Remote)</option>
+          </select>
+        </div>
+
+        {dbType === 'sqlite' ? (
+          <div className="form-group">
+            <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>DATABASE FILE</label>
+            <input 
+              className="form-input" 
+              value={config.database} 
+              onChange={e => setConfig({...config, database: e.target.value})} 
+            />
+          </div>
+        ) : (
+          <>
+            <div className="flex-row gap-10">
+              <div className="form-group" style={{flex: 2}}>
+                <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>HOST</label>
+                <input className="form-input" value={config.host} onChange={e => setConfig({...config, host: e.target.value})} />
+              </div>
+              <div className="form-group" style={{flex: 1}}>
+                <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>PORT</label>
+                <input className="form-input" placeholder={dbType === 'mysql' ? '3306' : '5432'} value={config.port} onChange={e => setConfig({...config, port: e.target.value})} />
+              </div>
+            </div>
+            <div className="flex-row gap-10">
+              <div className="form-group" style={{flex: 1}}>
+                <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>USER</label>
+                <input className="form-input" value={config.user} onChange={e => setConfig({...config, user: e.target.value})} />
+              </div>
+              <div className="form-group" style={{flex: 1}}>
+                <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>PASSWORD</label>
+                <input className="form-input" type="password" value={config.password} onChange={e => setConfig({...config, password: e.target.value})} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label" style={{color: '#969696', fontSize: '11px'}}>DATABASE NAME</label>
+              <input className="form-input" value={config.database} onChange={e => setConfig({...config, database: e.target.value})} />
+            </div>
+          </>
+        )}
+
+        {error && <div style={{color: '#f48771', fontSize: '12px', marginBottom: '15px'}}>{error}</div>}
+        
+        <div className="flex-row justify-between mt-10">
+          <button className="btn-vscode" style={{background: '#3a3d41'}} onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={handleConnect} disabled={loading}>
+            {loading ? 'Connecting...' : 'Connect'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Login View
 function LoginView() {
@@ -47,6 +153,7 @@ export default function App() {
   const [activeTabId, setActiveTabId] = useState('1');
   const [activeSidebar, setActiveSidebar] = useState('db');
   const [showAI, setShowAI] = useState(false);
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [schema, setSchema] = useState([]);
   const [aiPrompt, setAiPrompt] = useState('');
@@ -109,6 +216,12 @@ export default function App() {
     } catch (err) { alert(err.message); }
   };
 
+  const onConnectSuccess = () => {
+    setConnected(true);
+    fetchSchemaData();
+    fetchHistory();
+  };
+
   const addTab = (sql = '', title = '') => {
     const newId = String(Date.now());
     setTabs([...tabs, { id: newId, title: title || `query${tabs.length + 1}.sql`, sql, dirty: false }]);
@@ -119,7 +232,7 @@ export default function App() {
   const startResizingSidebar = (e) => {
     e.preventDefault();
     const onMouseMove = (moveEvent) => {
-      setSidebarWidth(Math.max(150, Math.min(600, moveEvent.pageX - 48))); // Offset for activity bar
+      setSidebarWidth(Math.max(150, Math.min(600, moveEvent.pageX - 48)));
     };
     const onMouseUp = () => {
       document.removeEventListener('mousemove', onMouseMove);
@@ -132,7 +245,7 @@ export default function App() {
   const startResizingBottom = (e) => {
     e.preventDefault();
     const onMouseMove = (moveEvent) => {
-      const newHeight = window.innerHeight - moveEvent.pageY - 22; // Offset for status bar
+      const newHeight = window.innerHeight - moveEvent.pageY - 22;
       setBottomPanelHeight(Math.max(100, Math.min(600, newHeight)));
     };
     const onMouseUp = () => {
@@ -187,6 +300,9 @@ export default function App() {
 
       {/* Main Toolbar */}
       <div className="toolbar">
+        <button className="toolbar-btn" onClick={() => setIsConnectModalOpen(true)} title="Connect to Database">
+          <VscLink /> Connect
+        </button>
         <button className="toolbar-btn btn-run" onClick={handleRun} disabled={dbLoading} title="Execute Query (Ctrl+Enter)">
           <VscPlay /> Run
         </button>
@@ -238,7 +354,7 @@ export default function App() {
                     </div>
                   )) : (
                     <div style={{padding: '10px 25px', fontSize: '11px', color: '#666', fontStyle: 'italic'}}>
-                      No tables found. Click 'Sample DB' to begin.
+                      No tables found. Click 'Connect' or 'Sample DB'.
                     </div>
                   )}
                 </div>
@@ -380,6 +496,12 @@ export default function App() {
           </>
         )}
       </div>
+
+      <ConnectionDialog 
+        isOpen={isConnectModalOpen} 
+        onClose={() => setIsConnectModalOpen(false)} 
+        onConnect={onConnectSuccess} 
+      />
 
       {/* Status Bar */}
       <div className="status-bar">

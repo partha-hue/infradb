@@ -5,8 +5,10 @@ import axiosInstance from './axios';
  */
 export const login = async (credentials) => {
   const response = await axiosInstance.post('/api/auth/login/', credentials);
-  if (response.data.access || response.data.token) {
-    localStorage.setItem('auth_token', response.data.access || response.data.token);
+  // Support both 'access' (JWT) and 'token' (SimpleJWT)
+  const token = response.data.access || response.data.token;
+  if (token) {
+    localStorage.setItem('auth_token', token);
   }
   return response.data;
 };
@@ -25,8 +27,12 @@ export const getSchema = async () => {
 };
 
 export const connectDB = async (config) => {
-  // config can contain { db_type: 'local' | 'cloud', ... }
   const response = await axiosInstance.post('/api/connect/', config);
+  return response.data;
+};
+
+export const loadSampleDB = async () => {
+  const response = await axiosInstance.post('/api/load-sample-db/');
   return response.data;
 };
 
@@ -35,18 +41,11 @@ export const listDatabases = async () => {
   return response.data;
 };
 
-export const createDatabase = async (data) => {
-  const response = await axiosInstance.post('/api/databases/create/', data);
-  return response.data;
-};
-
 /**
  * Query Engine Services
  */
 export const runQuery = async (sql) => {
-  // Handling large JSON arrays is mostly about the environment/browser, 
-  // but we ensure we return the data directly.
-  const response = await axiosInstance.post('/api/queries/run/', { sql });
+  const response = await axiosInstance.post('/api/queries/run/', { query: sql });
   return response.data;
 };
 
@@ -56,30 +55,25 @@ export const getQueryHistory = async () => {
 };
 
 export const explainQuery = async (sql) => {
-  const response = await axiosInstance.post('/api/queries/explain/', { sql });
+  const response = await axiosInstance.post('/api/queries/explain/', { query: sql });
   return response.data;
 };
 
-/**
- * AI Assistance Services
- */
 export const suggestQuery = async (prompt) => {
   const response = await axiosInstance.post('/api/ai/query_suggest/', { prompt });
   return response.data;
 };
 
 /**
- * Special Handling: File Imports
+ * Data Import
  */
-export const importData = async (file, tableName) => {
+export const importCSV = async (file, tableName) => {
   const formData = new FormData();
   formData.append('file', file);
-  formData.append('table_name', tableName);
+  if (tableName) formData.append('table_name', tableName);
 
-  const response = await axiosInstance.post('/api/databases/import/', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
+  const response = await axiosInstance.post('/api/import-csv/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
   });
   return response.data;
 };
