@@ -5,7 +5,6 @@ import axiosInstance from './axios';
  */
 export const login = async (credentials) => {
   const response = await axiosInstance.post('/api/auth/login/', credentials);
-  // Support both 'access' (JWT) and 'token' (SimpleJWT)
   const token = response.data.access || response.data.token;
   if (token) {
     localStorage.setItem('auth_token', token);
@@ -15,6 +14,14 @@ export const login = async (credentials) => {
 
 export const register = async (data) => {
   const response = await axiosInstance.post('/api/auth/register/', data);
+  return response.data;
+};
+
+/**
+ * System Services
+ */
+export const getSystemInfo = async () => {
+  const response = await axiosInstance.get('/api/system/info/');
   return response.data;
 };
 
@@ -31,14 +38,43 @@ export const connectDB = async (config) => {
   return response.data;
 };
 
+export const disconnectDB = async () => {
+  const response = await axiosInstance.post('/api/disconnect/');
+  return response.data;
+};
+
 export const loadSampleDB = async () => {
   const response = await axiosInstance.post('/api/load-sample-db/');
   return response.data;
 };
 
-export const listDatabases = async () => {
-  const response = await axiosInstance.get('/api/databases/list/');
+/**
+ * File Ops
+ */
+export const importFile = async (file, tableName) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('table_name', tableName);
+  const response = await axiosInstance.post('/api/import-file/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
   return response.data;
+};
+
+export const exportData = async (query, format = 'csv') => {
+  const response = await axiosInstance.post('/api/export-data/', 
+    { query, format }, 
+    { responseType: 'blob' }
+  );
+  
+  // Trigger download
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `export_${Date.now()}.${format === 'excel' ? 'xlsx' : format}`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 };
 
 /**
@@ -49,31 +85,11 @@ export const runQuery = async (sql) => {
   return response.data;
 };
 
-export const getQueryHistory = async () => {
-  const response = await axiosInstance.get('/api/queries/history/');
-  return response.data;
-};
-
-export const explainQuery = async (sql) => {
-  const response = await axiosInstance.post('/api/queries/explain/', { query: sql });
-  return response.data;
-};
-
-export const suggestQuery = async (prompt) => {
-  const response = await axiosInstance.post('/api/ai/query_suggest/', { prompt });
-  return response.data;
-};
-
-/**
- * Data Import
- */
-export const importCSV = async (file, tableName) => {
-  const formData = new FormData();
-  formData.append('file', file);
-  if (tableName) formData.append('table_name', tableName);
-
-  const response = await axiosInstance.post('/api/import-csv/', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+export const suggestQuery = async (prompt, action = 'generate', currentSql = '') => {
+  const response = await axiosInstance.post('/api/ai/query_suggest/', { 
+    prompt, 
+    action, 
+    current_sql: currentSql 
   });
   return response.data;
 };

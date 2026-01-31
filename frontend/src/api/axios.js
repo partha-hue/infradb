@@ -28,10 +28,12 @@ axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response) {
-      // Handle 401 Unauthorized
-      if (error.response.status === 401) {
+      // Handle 401 Unauthorized - REMOVED RELOAD LOOP
+      // If we are already on the root/login page, don't redirect to avoid infinite loops
+      if (error.response.status === 401 && window.location.pathname !== '/') {
         localStorage.removeItem('auth_token');
-        window.location.href = '/login'; // Or use a redirect from a hook
+        // Instead of hard redirect, we let the app state handle it or redirect to root
+        window.location.href = '/'; 
       }
       
       // Extract meaningful DRF error messages

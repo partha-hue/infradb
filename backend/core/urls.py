@@ -7,6 +7,9 @@ urlpatterns = [
     path('auth/login/', views.login, name='login'),
     path('auth/register/', views.register, name='register'),
     
+    # System Status
+    path('system/info/', views.system_info, name='system_info'),
+    
     # Database Connection
     path('connect/', views.connect, name='connect'),
     path('disconnect/', views.disconnect, name='disconnect'),
@@ -25,6 +28,8 @@ urlpatterns = [
     path('databases/list/', views.list_databases, name='list_databases'),
     
     # Data Import/Export
+    path('import-file/', views.import_file, name='import_file'),
+    path('export-data/', views.export_data, name='export_data'),
     path('import-csv/', views.import_csv, name='import_csv'),
     path('import-excel/', views.import_excel, name='import_excel'),
     

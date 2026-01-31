@@ -1,4 +1,3 @@
-# backend/core/views.py
 import json
 import os
 import sqlite3
@@ -7,387 +6,368 @@ import csv
 import io
 import time
 import re
+import platform
+import logging
+import pandas as pd
 from datetime import datetime, timedelta
 from django.views.decorators.csrf import csrf_exempt
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from dotenv import load_dotenv
 import psycopg2
 import mysql.connector
 from django.conf import settings
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from .models import DatabaseConnection, QueryHistory, SavedQuery, AuditLog, UserProfile
+from .db_manager import DBManager
+from .excel_handler import sanitize_column_name, infer_sql_type, generate_create_table_sql, generate_insert_sql
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
 
 cohere_api_key = os.getenv("COHERE_API_KEY")
-if not cohere_api_key:
-    print("🚨 Missing COHERE_API_KEY in .env file")
-    co = None
-else:
-    co = cohere.Client(cohere_api_key)
+co = None
+if cohere_api_key:
+    try:
+        co = cohere.Client(cohere_api_key)
+    except Exception as e:
+        logger.error(f"Failed to initialize Cohere client: {e}")
 
-# Try to import QueryHistory model
-try:
-    from .models import QueryHistory, SavedQuery
-    _HAVE_QUERY_HISTORY_MODEL = True
-except Exception:
-    QueryHistory = None
-    SavedQuery = None
-    _HAVE_QUERY_HISTORY_MODEL = False
+# Connection pool
+user_db_managers = {}
 
-# Global connection store
-connections = {}
-in_memory_history = []
-saved_queries_memory = []
+def get_user_manager(user_id):
+    if user_id not in user_db_managers:
+        user_db_managers[user_id] = DBManager()
+    return user_db_managers[user_id]
 
-# Helper: create DB cursor
-def _get_cursor_and_commit_fn(conn_obj, db_type):
-    if db_type == "sqlite":
-        cur = conn_obj.cursor()
-        return cur, lambda: conn_obj.commit()
-    elif db_type == "mysql":
-        cur = conn_obj.cursor(buffered=True)
-        return cur, lambda: conn_obj.commit()
-    elif db_type == "postgresql":
-        cur = conn_obj.cursor()
-        return cur, lambda: conn_obj.commit()
-    else:
-        raise ValueError("Unsupported db type")
+def _split_sql_statements(query):
+    statements = []
+    current = []
+    in_single_quote = False
+    in_double_quote = False
+    escaped = False
+    for char in query:
+        if escaped:
+            current.append(char); escaped = False; continue
+        if char == "\\":
+            escaped = True; current.append(char); continue
+        if char == "'" and not in_double_quote: in_single_quote = not in_single_quote
+        elif char == '"' and not in_single_quote: in_double_quote = not in_double_quote
+        if char == ';' and not in_single_quote and not in_double_quote:
+            stmt = "".join(current).strip()
+            if stmt: statements.append(stmt)
+            current = []
+        else: current.append(char)
+    last = "".join(current).strip()
+    if last: statements.append(last)
+    return statements
+
+def _analyze_query_safety(stmt, config, user_profile):
+    is_prod = config.get('is_production', False)
+    role = user_profile.role if user_profile else 'DEVELOPER'
+    q = stmt.lower().strip()
+    destructive = ["delete", "update", "drop", "truncate"]
+    if role == 'READ_ONLY':
+        if any(cmd in q for cmd in ["insert", "update", "delete", "drop", "truncate", "create", "alter"]):
+            return False, "BLOCKED: Your account has Read-Only permissions."
+    if any(cmd in q for cmd in destructive):
+        if "where" not in q and is_prod:
+            return False, f"BLOCKED: Destructive command '{stmt.split()[0].upper()}' without WHERE clause is prohibited in Production."
+    return True, ""
 
 # -------------------------
-# AUTHENTICATION ENDPOINTS
+# AUTH & PROFILE
 # -------------------------
-
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def login(request):
-    username = request.data.get("username")
-    password = request.data.get("password")
-    
-    if not username or not password:
-        return Response({"error": "Username and password required"}, status=400)
-    
+    username, password = request.data.get("username"), request.data.get("password")
     user = authenticate(username=username, password=password)
-    
-    if user is not None:
+    if user:
+        profile, _ = UserProfile.objects.get_or_create(user=user)
         refresh = RefreshToken.for_user(user)
-        role = "admin" if user.is_superuser or user.is_staff else "user"
-        
         return Response({
             "token": str(refresh.access_token),
             "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "user": {
-                "username": user.username,
-                "email": user.email,
-                "role": role,
-                "id": user.id
-            }
-        }, status=200)
-    else:
-        return Response({"error": "Invalid credentials"}, status=401)
+            "user": {"username": user.username, "role": profile.role}
+        })
+    return Response({"error": "Invalid credentials"}, status=401)
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def register(request):
-    username = request.data.get("username")
-    password = request.data.get("password")
-    email = request.data.get("email", "")
-    
-    if not username or not password:
-        return Response({"error": "Username and password required"}, status=400)
-    
-    if User.objects.filter(username=username).exists():
-        return Response({"error": "Username already exists"}, status=400)
-    
+    username, password = request.data.get("username"), request.data.get("password")
+    if not username or not password: return Response({"error": "Username and password required"}, status=400)
     try:
-        user = User.objects.create_user(username=username, password=password, email=email)
+        if User.objects.filter(username=username).exists(): return Response({"error": "User already exists"}, status=400)
+        user = User.objects.create_user(username=username, password=password)
+        UserProfile.objects.get_or_create(user=user)
         return Response({"message": "User created successfully"}, status=201)
-    except Exception as e:
-        return Response({"error": str(e)}, status=400)
-
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def ping(request):
-    return Response({"status": "ok"}, status=200)
+    except Exception as e: return Response({"error": str(e)}, status=400)
 
 # -------------------------
-# CONNECT / DISCONNECT
+# DATABASE OPS
 # -------------------------
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def connect(request):
-    db_type = request.data.get('db_type') or request.data.get('type')
-    if not db_type:
-        return Response({'error': 'Missing required field: db_type'}, status=400)
-
-    if db_type == 'sqlite':
-        database = request.data.get('database', 'default.db')
-        db_dir = os.path.join(settings.BASE_DIR, 'user_databases')
-        os.makedirs(db_dir, exist_ok=True)
-        db_path = os.path.join(db_dir, database)
-
+    user_id = request.user.id
+    manager = get_user_manager(user_id)
+    conn_id = request.data.get('connection_id')
+    
+    if conn_id:
         try:
-            conn = sqlite3.connect(db_path, check_same_thread=False)
-            connection_id = f"sqlite_{os.path.basename(database)}"
-            connections[connection_id] = {"type": "sqlite", "conn": conn, "database": db_path}
-            connections["current"] = connections[connection_id]
-            return Response({'success': True, 'ok': True, 'message': f'✅ Connected to {database}'})
-        except Exception as e:
-            return Response({'error': str(e)}, status=400)
-
-    elif db_type in ['mysql', 'postgresql']:
-        host = request.data.get('host')
-        port = request.data.get('port')
-        user = request.data.get('user')
-        password = request.data.get('password')
-        database = request.data.get('database')
-        try:
-            if db_type == 'mysql':
-                conn = mysql.connector.connect(host=host, port=int(port or 3306), user=user, password=password, database=database)
-            else:
-                conn = psycopg2.connect(host=host, port=int(port or 5432), user=user, password=password, dbname=database)
-            
-            connection_id = f"{db_type}_{host}_{database}"
-            connections[connection_id] = {"type": db_type, "conn": conn}
-            connections["current"] = connections[connection_id]
-            return Response({'success': True, 'ok': True, 'message': f'✅ Connected to {db_type}'})
-        except Exception as e:
-            return Response({'error': str(e)}, status=400)
-    return Response({'error': 'Unsupported db_type'}, status=400)
+            conn_obj = DatabaseConnection.objects.get(id=conn_id, user=request.user)
+            config = {
+                "engine": conn_obj.engine, 
+                "host": conn_obj.host, 
+                "port": conn_obj.port, 
+                "username": conn_obj.username, 
+                "password": conn_obj.password, 
+                "database": conn_obj.database, 
+                "use_ssl": conn_obj.use_ssl, 
+                "is_production": conn_obj.is_production
+            }
+            manager.active_connection_id = conn_obj.id
+        except DatabaseConnection.DoesNotExist: return Response({"error": "Connection not found"}, status=404)
+    else:
+        config = request.data.copy()
+        if 'db_type' in config: config['engine'] = config.get('db_type')
+        if 'user' in config and 'username' not in config: config['username'] = config.get('user')
+        if 'db_name' in config and 'database' not in config: config['database'] = config.get('db_name')
+        manager.active_connection_id = None
+        
+    try:
+        manager.connect(config)
+        AuditLog.objects.create(user=request.user, action="CONNECT", details={"engine": config.get('engine'), "database": config.get('database')})
+        return Response({'success': True, "is_production": config.get('is_production', False)})
+    except Exception as e: return Response({'error': str(e)}, status=400)
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def disconnect(request):
-    if "current" in connections:
-        try:
-            connections["current"]["conn"].close()
-        except: pass
-        del connections["current"]
-    return Response({"ok": True}, status=200)
+    manager = get_user_manager(request.user.id)
+    manager.disconnect()
+    return Response({"ok": True})
 
-# -------------------------
-# SCHEMA
-# -------------------------
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def schema(request):
-    if "current" not in connections:
-        return Response({"error": "No active database connection"}, status=400)
-
-    config = connections["current"]
-    db_type = config["type"]
-    conn = config["conn"]
-    result = []
-    try:
-        cur = conn.cursor()
-        if db_type == "postgresql":
-            cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';")
-            tables = [r[0] for r in cur.fetchall()]
-            for t in tables:
-                cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s;", (t,))
-                cols = [r[0] for r in cur.fetchall()]
-                result.append({"name": t, "columns": cols})
-        elif db_type == "mysql":
-            cur.execute("SHOW TABLES;")
-            tables = [r[0] for r in cur.fetchall()]
-            for t in tables:
-                cur.execute(f"SHOW COLUMNS FROM `{t}`;")
-                cols = [r[0] for r in cur.fetchall()]
-                result.append({"name": t, "columns": cols})
-        elif db_type == "sqlite":
-            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
-            tables = [r[0] for r in cur.fetchall()]
-            for t in tables:
-                cur.execute(f"PRAGMA table_info(`{t}`);")
-                cols = [r[1] for r in cur.fetchall()]
-                result.append({"name": t, "columns": cols})
-        cur.close()
-        return Response({"tables": result}, status=200)
-    except Exception as e:
-        return Response({"error": str(e)}, status=400)
-
-# -------------------------
-# RUN QUERY
-# -------------------------
 @api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def run_query(request):
-    query = request.data.get("query") or request.data.get("sql")
-    if not query: return Response({"error": "No query provided"}, status=400)
-    if "current" not in connections: return Response({"error": "No active connection"}, status=400)
-
-    config = connections["current"]
-    db_type, conn = config["type"], config["conn"]
-    start_time = time.time()
-    try:
-        cur, commit_fn = _get_cursor_and_commit_fn(conn, db_type)
-        results = []
-        statements = [s.strip() for s in query.split(';') if s.strip()] or [query.strip()]
-        for stmt in statements:
-            cur.execute(stmt)
-            if cur.description:
-                columns = [col[0] for col in cur.description]
-                rows = [list(r) for r in cur.fetchall()]
-                results.append({"columns": columns, "rows": rows, "message": f"✅ {len(rows)} rows"})
-            else:
-                commit_fn()
-                results.append({"columns": [], "rows": [], "message": "✅ Success"})
-        execution_time = (time.time() - start_time) * 1000
-        if _HAVE_QUERY_HISTORY_MODEL:
-            try: QueryHistory.objects.create(query=query, execution_time=execution_time)
+    query = request.data.get("query")
+    manager = get_user_manager(request.user.id)
+    if not manager.conn and manager.db_type != "mongodb": return Response({"error": "No active database connection."}, status=400)
+    config = manager.config or {}
+    user_profile, _ = UserProfile.objects.get_or_create(user=request.user)
+    statements = _split_sql_statements(query)
+    all_results = []
+    conn_obj = None
+    if hasattr(manager, 'active_connection_id') and manager.active_connection_id:
+        try: conn_obj = DatabaseConnection.objects.get(id=manager.active_connection_id)
+        except: pass
+    for stmt in statements:
+        is_safe, error_msg = _analyze_query_safety(stmt, config, user_profile)
+        if not is_safe:
+            all_results.append({"error": error_msg, "query": stmt[:100], "status": "BLOCKED"})
+            continue
+        results = manager.execute(stmt)
+        for res in results:
+            try:
+                QueryHistory.objects.create(user=request.user, connection=conn_obj, query=stmt, execution_time=res.get('execution_time', 0.0), row_count=len(res.get('rows', [])), status='FAILED' if 'error' in res else 'SUCCESS', error_message=res.get('error'))
             except: pass
-        else:
-            in_memory_history.append({"query": query, "execution_time": execution_time, "created_at": datetime.now().isoformat()})
-        cur.close()
-        return Response({"results": results, "execution_time": execution_time}, status=200)
-    except Exception as e:
-        return Response({"error": str(e)}, status=400)
-
-# -------------------------
-# AI / HISTORY / EXPLAIN
-# -------------------------
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def ai_query_suggest(request):
-    prompt = request.data.get("prompt") or request.data.get("query")
-    if not (prompt and co): return Response({"error": "Missing prompt or AI not configured"}, status=400)
-    try:
-        response = co.chat(model="command-r-plus", message=f"Generate SQL for: {prompt}")
-        sql = response.text.strip().replace('```sql', '').replace('```', '')
-        return Response({"sql": sql})
-    except Exception as e: return Response({"error": str(e)}, status=500)
+        all_results.extend(results)
+    return Response({"results": all_results})
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
+def schema(request):
+    manager = get_user_manager(request.user.id)
+    if not manager.conn and manager.db_type != 'mongodb': return Response({"error": "No connection"}, status=400)
+    result = {"tables": [], "database_name": manager.config.get("database")}
+    try:
+        cur = manager.cursor
+        if manager.db_type == "sqlite":
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'django_%' AND name NOT LIKE 'auth_%';")
+            for r in cur.fetchall():
+                t = r[0]
+                cur.execute(f"PRAGMA table_info(`{t}`);")
+                cols = [{"name": col[1], "type": col[2], "pk": col[5] == 1} for col in cur.fetchall()]
+                result["tables"].append({"name": t, "columns": cols})
+        elif manager.db_type == "postgresql":
+            cur.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'")
+            tables = [r[0] for r in cur.fetchall()]
+            for t in tables:
+                cur.execute("""
+                    SELECT 
+                        column_name, data_type,
+                        column_name IN (
+                            SELECT kcu.column_name
+                            FROM information_schema.table_constraints tc
+                            JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+                            WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_name = %s
+                        ) as is_pk
+                    FROM information_schema.columns 
+                    WHERE table_name = %s AND table_schema = 'public'
+                """, [t, t])
+                cols = [{"name": col[0], "type": col[1], "pk": col[2]} for col in cur.fetchall()]
+                result["tables"].append({"name": t, "columns": cols})
+        elif manager.db_type == "mysql":
+            cur.execute("SHOW TABLES")
+            tables = [list(r.values())[0] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+            for t in tables:
+                cur.execute(f"DESCRIBE `{t}`")
+                cols = []
+                for col in cur.fetchall():
+                    name = col['Field'] if isinstance(col, dict) else col[0]
+                    type_ = col['Type'] if isinstance(col, dict) else col[1]
+                    key = col['Key'] if isinstance(col, dict) else col[3]
+                    cols.append({"name": name, "type": type_, "pk": key == 'PRI'})
+                result["tables"].append({"name": t, "columns": cols})
+        elif manager.db_type == "mongodb":
+            db = manager.conn[manager.config.get("database")]
+            for coll in db.list_collection_names(): result["tables"].append({"name": coll, "columns": []})
+        return Response(result)
+    except Exception as e: return Response({"error": str(e)}, status=400)
+
+# -------------------------
+# HISTORY & SAVED QUERIES
+# -------------------------
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def query_history(request):
-    if _HAVE_QUERY_HISTORY_MODEL:
-        qs = QueryHistory.objects.all().order_by("-created_at")[:50]
-        return Response([{"query": q.query, "execution_time": getattr(q, 'execution_time', 0), "created_at": q.created_at} for q in qs])
-    return Response(in_memory_history[::-1])
+    history = QueryHistory.objects.filter(user=request.user).order_by('-created_at')[:50]
+    data = [{
+        "id": str(h.id),
+        "query": h.query,
+        "execution_time": h.execution_time,
+        "row_count": h.row_count,
+        "status": h.status,
+        "created_at": h.created_at.strftime("%Y-%m-%d %H:%M:%S")
+    } for h in history]
+    return Response(data)
 
 @api_view(["POST"])
-@permission_classes([AllowAny])
-def explain_query(request):
-    query = request.data.get("query") or request.data.get("sql")
-    if not (query and "current" in connections): return Response({"error": "Missing query/connection"}, status=400)
-    db_type, conn = connections["current"]["type"], connections["current"]["conn"]
-    try:
-        cur = conn.cursor()
-        prefix = "EXPLAIN ANALYZE " if db_type == "postgresql" else ("EXPLAIN QUERY PLAN " if db_type == "sqlite" else "EXPLAIN ")
-        cur.execute(f"{prefix}{query}")
-        plan = [str(r) for r in cur.fetchall()]
-        cur.close()
-        return Response({"plan": plan})
-    except Exception as e: return Response({"error": str(e)}, status=400)
-
-# -------------------------
-# MANAGEMENT
-# -------------------------
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def create_database(request):
-    name = request.data.get("name")
-    if not (name and "current" in connections): return Response({"error": "Name/Connection required"}, status=400)
-    db_type, conn = connections["current"]["type"], connections["current"]["conn"]
-    try:
-        cur = conn.cursor()
-        if db_type == "mysql": cur.execute(f"CREATE DATABASE IF NOT EXISTS `{name}`")
-        elif db_type == "postgresql": 
-            conn.autocommit = True
-            cur.execute(f"CREATE DATABASE {name}")
-            conn.autocommit = False
-        else: return Response({"error": "Not supported for SQLite"}, status=400)
-        cur.close()
-        return Response({"message": "Database created"})
-    except Exception as e: return Response({"error": str(e)}, status=400)
-
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def list_databases(request):
-    if "current" not in connections: return Response({"error": "No connection"}, status=400)
-    db_type, conn = connections["current"]["type"], connections["current"]["conn"]
-    try:
-        cur = conn.cursor()
-        if db_type == "mysql": cur.execute("SHOW DATABASES")
-        elif db_type == "postgresql": cur.execute("SELECT datname FROM pg_database")
-        else: return Response({"databases": ["SQLite"]})
-        dbs = [r[0] for r in cur.fetchall()]
-        cur.close()
-        return Response({"databases": dbs})
-    except Exception as e: return Response({"error": str(e)}, status=400)
-
-# -------------------------
-# IMPORT / OTHER
-# -------------------------
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def import_csv(request):
-    if "current" not in connections: return Response({"error": "No connection"}, status=400)
-    f = request.FILES.get("file")
-    if not f: return Response({"error": "No file"}, status=400)
-    db_type, conn = connections["current"]["type"], connections["current"]["conn"]
-    try:
-        table_name = "imported_" + os.path.splitext(f.name)[0]
-        content = f.read().decode("utf-8")
-        reader = csv.reader(io.StringIO(content))
-        headers = next(reader)
-        rows = list(reader)
-        cur = conn.cursor()
-        cols_def = ", ".join([f"`{h}` TEXT" for h in headers])
-        cur.execute(f"CREATE TABLE IF NOT EXISTS `{table_name}` ({cols_def})")
-        placeholder = ", ".join(["?"] * len(headers)) if db_type == "sqlite" else ", ".join(["%s"] * len(headers))
-        cur.executemany(f"INSERT INTO `{table_name}` VALUES ({placeholder})", rows)
-        conn.commit()
-        cur.close()
-        return Response({"message": f"Imported {len(rows)} rows into {table_name}"})
-    except Exception as e: return Response({"error": str(e)}, status=400)
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def import_excel(request):
-    return Response({"error": "Excel import requires additional dependencies"}, status=501)
-
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def er_diagram(request):
-    return Response({"tables": {}})
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def load_sample_db(request):
-    try:
-        path = os.path.join(settings.BASE_DIR, "sample_db.sqlite3")
-        conn = sqlite3.connect(path, check_same_thread=False)
-        cur = conn.cursor()
-        cur.executescript("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT); INSERT OR IGNORE INTO users (name) VALUES ('Alice'), ('Bob');")
-        conn.commit()
-        connections["current"] = {"type": "sqlite", "conn": conn}
-        return Response({"ok": True})
-    except Exception as e: return Response({"error": str(e)}, status=400)
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
-def recommend_indexes(request):
-    return Response({"recommendations": []})
-
-@api_view(["POST"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def save_query(request):
-    t, q = request.data.get("title"), request.data.get("query")
-    if not (t and q): return Response({"error": "Missing data"}, status=400)
-    if _HAVE_QUERY_HISTORY_MODEL: SavedQuery.objects.create(title=t, query=q)
-    else: saved_queries_memory.append({"title": t, "query": q})
+    SavedQuery.objects.create(user=request.user, title=request.data.get("title", "Saved"), query=request.data.get("query"))
     return Response({"message": "Saved"})
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_saved_queries(request):
-    if _HAVE_QUERY_HISTORY_MODEL: return Response([{"title": q.title, "query": q.query} for q in SavedQuery.objects.all()])
-    return Response(saved_queries_memory)
+    queries = SavedQuery.objects.filter(user=request.user)
+    return Response([{"id": str(q.id), "title": q.title, "query": q.query} for q in queries])
+
+# -------------------------
+# UTILS & STUBS
+# -------------------------
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def explain_query(request):
+    query = request.data.get("query")
+    manager = get_user_manager(request.user.id)
+    if not manager.conn: return Response({"error": "No connection"}, status=400)
+    try:
+        sql = f"EXPLAIN {query}"
+        if manager.db_type == 'sqlite': sql = f"EXPLAIN QUERY PLAN {query}"
+        return Response({"plan": manager.execute(sql)})
+    except Exception as e: return Response({"error": str(e)}, status=400)
+
+@api_view(["POST"])
+def recommend_indexes(request): return Response({"recommendations": []})
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def system_info(request): return Response({"environment": "Development", "platform": platform.system()})
+
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def manage_connections(request):
+    if request.method == 'GET':
+        conns = DatabaseConnection.objects.filter(user=request.user)
+        return Response([{"id": str(c.id), "name": c.name, "engine": c.engine} for c in conns])
+    return Response({"message": "Saved"})
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+@parser_classes([MultiPartParser, FormParser])
+def import_file(request):
+    file_obj = request.FILES.get('file')
+    table_name = request.data.get('table_name')
+    if not file_obj or not table_name:
+        return Response({"error": "File and table name are required"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    manager = get_user_manager(request.user.id)
+    if not manager.conn:
+        return Response({"error": "No active database connection"}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Read file into DataFrame
+        filename = file_obj.name.lower()
+        if filename.endswith('.csv'):
+            df = pd.read_csv(file_obj)
+        elif filename.endswith(('.xls', '.xlsx')):
+            df = pd.read_excel(file_obj)
+        elif filename.endswith('.json'):
+            df = pd.read_json(file_obj)
+        else:
+            return Response({"error": "Unsupported file format"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Sanitize table name
+        table_name = re.sub(r'[^a-zA-Z0-9_]', '_', table_name)
+        
+        # Generate and execute CREATE TABLE
+        create_sql = generate_create_table_sql(df, table_name)
+        manager.execute(create_sql)
+        
+        # Generate and execute INSERT
+        insert_sql, values = generate_insert_sql(df, table_name)
+        manager.execute_values(insert_sql, values)
+        
+        return Response({
+            "message": f"Successfully imported {len(df)} rows into {table_name}",
+            "table_name": table_name,
+            "row_count": len(df)
+        })
+    except Exception as e:
+        logger.error(f"Import error: {str(e)}")
+        return Response({"error": f"Import failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(["POST"])
+def export_data(request): return Response({"ok": True})
+@api_view(["POST"])
+def import_csv(request): return Response({"ok": True})
+@api_view(["POST"])
+def import_excel(request): return Response({"ok": True})
+@api_view(["POST"])
+def create_database(request): return Response({"ok": True})
+@api_view(["GET"])
+def list_databases(request): return Response({"databases": []})
+@api_view(["GET"])
+def er_diagram(request): return Response({})
+@api_view(["GET"])
+def ping(request): return Response({"status": "ok"})
+@api_view(["POST"])
+def transaction_control(request): return Response({"ok": True})
+@api_view(["POST"])
+def load_sample_db(request): return Response({"ok": True})
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ai_query_suggest(request):
+    prompt = request.data.get("prompt")
+    if not co: return Response({"error": "AI Agent not initialized"}, status=503)
+    try:
+        res = co.chat(message=prompt)
+        return Response({"text": res.text})
+    except Exception as e: return Response({"error": str(e)}, status=500)
