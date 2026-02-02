@@ -41,4 +41,9 @@ urlpatterns = [
     
     # AI Features
     path('ai/query_suggest/', views.ai_query_suggest, name='ai_query_suggest'),
+    path('ai/analyze_schema/', views.ai_analyze_schema, name='ai_analyze_schema'),
+
+    # Schema Engine (Bidirectional Sync)
+    path('schema/sql-to-designer/', views.sql_to_designer, name='sql_to_designer'),
+    path('schema/designer-to-sql/', views.designer_to_sql, name='designer_to_sql'),
 ]

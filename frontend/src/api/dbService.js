@@ -93,3 +93,16 @@ export const suggestQuery = async (prompt, action = 'generate', currentSql = '')
   });
   return response.data;
 };
+
+/**
+ * Schema Engine Services
+ */
+export const sqlToDesigner = async (sql) => {
+  const response = await axiosInstance.post('/api/schema/sql-to-designer/', { sql });
+  return response.data;
+};
+
+export const designerToSql = async (schema) => {
+  const response = await axiosInstance.post('/api/schema/designer-to-sql/', { schema });
+  return response.data;
+};

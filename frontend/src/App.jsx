@@ -7,7 +7,7 @@ import {
   VscFolderOpened, VscRemoteExplorer, VscSourceControl, VscLink,
   VscKey, VscTable, VscLayers, VscRefresh, VscSymbolField, VscInfo, VscServer, VscShield,
   VscEdit, VscJson, VscCheck, VscQuestion, VscSave, VscFolder, VscExport, VscFileMedia,
-  VscArrowRight, VscGoToFile, VscLock, VscUnlock
+  VscArrowRight, VscGoToFile, VscLock, VscUnlock, VscGraph, VscTelescope, VscLightbulb
 } from "react-icons/vsc";
 import Editor, { loader } from "@monaco-editor/react";
 import { connectDB, getSchema, suggestQuery, loadSampleDB, getSystemInfo, importFile, exportData } from './api/dbService';
@@ -213,7 +213,12 @@ function AIPanel() {
 
   const handleAction = async (action, customPrompt = null) => {
     const finalPrompt = customPrompt || prompt;
-    const messageToSend = finalPrompt.trim() || (action === 'fix' ? 'Fix this query' : action === 'explain' ? 'Explain this query' : 'Generate query');
+    const messageToSend = finalPrompt.trim() || (
+      action === 'fix' ? 'Fix this query' : 
+      action === 'explain' ? 'Explain this query' : 
+      action === 'analyze' ? 'Schema Analysis' : 
+      'Generate query'
+    );
     
     setLoading(true);
     setHistory(prev => [...prev, { role: 'user', content: messageToSend, action }]);
@@ -223,6 +228,8 @@ function AIPanel() {
         role: 'ai', 
         content: result.text, 
         sql: result.sql,
+        report: result.report,
+        is_report: result.is_report,
         action 
       }]);
       setPrompt('');
@@ -231,27 +238,48 @@ function AIPanel() {
     } finally { setLoading(false); }
   };
 
-  const renderContent = (content, msgSql) => {
-    // If we have msgSql specifically, use it
-    if (msgSql) {
+  const renderContent = (msg) => {
+    if (msg.is_report && msg.report) {
+      return (
+        <div className="ai-report-container">
+          <div className="report-header"><VscTelescope /> DATABASE OPTIMIZATION REPORT</div>
+          {Object.entries(msg.report).map(([category, items]) => (
+            items && items.length > 0 && (
+              <div key={category} className="report-category">
+                <div className="category-title">{category.toUpperCase().replace('_', ' ')}</div>
+                {items.map((item, idx) => (
+                  <div key={idx} className="report-item">
+                    <div className="item-main">
+                      <VscLightbulb color="var(--pk-gold)" />
+                      <span>Table <strong>{item.table}</strong>: {item.suggestion}</span>
+                    </div>
+                    <div className="item-reason">{item.reason}</div>
+                  </div>
+                ))}
+              </div>
+            )
+          ))}
+        </div>
+      );
+    }
+
+    if (msg.sql) {
       return (
         <>
-          <div style={{whiteSpace: 'pre-wrap'}}>{content}</div>
+          <div style={{whiteSpace: 'pre-wrap'}}>{msg.content}</div>
           <div className="ai-code-block">
             <div className="code-header">
               <span>SQL</span>
-              <button onClick={() => updateSQL(activeTabId, msgSql)}><VscGoToFile /> Apply</button>
+              <button onClick={() => updateSQL(activeTabId, msg.sql)}><VscGoToFile /> Apply</button>
             </div>
-            <pre><code>{msgSql}</code></pre>
+            <pre><code>{msg.sql}</code></pre>
           </div>
         </>
       );
     }
 
-    // Otherwise, parse content for markdown code blocks
-    const parts = content.split(/```sql|```/g);
+    const parts = (msg.content || '').split(/```sql|```/g);
     return parts.map((part, i) => {
-      // Every odd index is content inside ```sql ... ```
       if (i % 2 === 1) {
         const sqlCode = part.trim();
         return (
@@ -278,7 +306,7 @@ function AIPanel() {
           <div key={i} className={`chat-bubble ${msg.role}`}>
             <div className="chat-role">{msg.role === 'user' ? 'YOU' : 'AI AGENT'}</div>
             <div className="chat-content">
-               {msg.role === 'ai' ? renderContent(msg.content, msg.sql) : <div style={{whiteSpace: 'pre-wrap'}}>{msg.content}</div>}
+               {msg.role === 'ai' ? renderContent(msg) : <div style={{whiteSpace: 'pre-wrap'}}>{msg.content}</div>}
             </div>
           </div>
         ))}
@@ -289,10 +317,105 @@ function AIPanel() {
         <div className="ai-actions-row">
           <button className="ai-action-btn" onClick={() => handleAction('fix')} disabled={loading} title="Fix Query"><VscCheck /> Fix</button>
           <button className="ai-action-btn" onClick={() => handleAction('explain')} disabled={loading} title="Explain Query"><VscQuestion /> Explain</button>
+          <button className="ai-action-btn" onClick={() => handleAction('analyze')} disabled={loading} title="Schema Analysis"><VscTelescope /> Analyze</button>
         </div>
         <div style={{position: 'relative'}}>
           <textarea className="ai-textarea" placeholder="Type a message..." value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleAction('generate'))} />
           <button className="ai-send-btn" onClick={() => handleAction('generate')} disabled={loading || !prompt.trim()}><VscArrowRight size={18} /></button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ERDesigner({ schema }) {
+  const [positions, setPositions] = useState({});
+  const [draggedTable, setDraggedTable] = useState(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+
+  const autoLayout = useCallback(() => {
+    const newPos = {};
+    schema.tables.forEach((t, i) => {
+      newPos[t.name] = { x: 50 + (i % 4) * 250, y: 50 + Math.floor(i / 4) * 320 };
+    });
+    setPositions(newPos);
+  }, [schema.tables]);
+
+  useEffect(() => {
+    if (Object.keys(positions).length === 0 && schema.tables.length > 0) {
+      autoLayout();
+    }
+  }, [schema.tables, autoLayout, positions]);
+
+  const onMouseDown = (e, tableName) => {
+    setDraggedTable(tableName);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    });
+  };
+
+  const onMouseMove = (e) => {
+    if (draggedTable) {
+      const canvas = document.querySelector('.er-canvas');
+      const canvasRect = canvas.getBoundingClientRect();
+      const scrollLeft = canvas.scrollLeft;
+      const scrollTop = canvas.scrollTop;
+      
+      setPositions(prev => ({
+        ...prev,
+        [draggedTable]: {
+          x: e.clientX - canvasRect.left + scrollLeft - offset.x,
+          y: e.clientY - canvasRect.top + scrollTop - offset.y
+        }
+      }));
+    }
+  };
+
+  const onMouseUp = () => {
+    setDraggedTable(null);
+  };
+
+  return (
+    <div className="er-designer-container" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
+      <div className="er-canvas scrollbar">
+        {schema.tables.map(table => (
+          <div 
+            key={table.name} 
+            className={`er-table-node ${draggedTable === table.name ? 'dragging' : ''}`}
+            style={{ 
+              position: 'absolute', 
+              left: positions[table.name]?.x || 0, 
+              top: positions[table.name]?.y || 0,
+            }}
+          >
+            <div className="er-table-header" onMouseDown={(e) => onMouseDown(e, table.name)}>
+              <VscTable size={14} color="#4fb6cc" />
+              <span>{table.name}</span>
+            </div>
+            <div className="er-table-body">
+              {table.columns.map(col => (
+                <div key={col.name} className="er-column">
+                  {col.pk ? <VscKey size={12} color="#cca700" /> : <div style={{width: 12}} />}
+                  <span className="er-column-name">{col.name}</span>
+                  <span className="er-column-type">{col.type}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="er-controls">
+        <div className="er-control-group">
+          <span>Design Mode</span>
+          <div className="btn-group">
+            <button className="btn-small active">Visual</button>
+            <button className="btn-small" onClick={autoLayout}>Auto-Layout</button>
+          </div>
+        </div>
+        <div className="er-info">
+          Drag headers to organize. Double click to edit schema.
         </div>
       </div>
     </div>
@@ -327,6 +450,7 @@ export default function App() {
   
   const [activeSidebar, setActiveSidebar] = useState('db');
   const [showAI, setShowAI] = useState(true);
+  const [viewMode, setViewMode] = useState('editor'); // 'editor' or 'designer'
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -432,7 +556,11 @@ export default function App() {
 
       <div className="toolbar">
         <button className="toolbar-btn" onClick={() => setIsConnectModalOpen(true)}><VscLink /> Connect</button>
-        <button className="toolbar-btn btn-run" onClick={() => executeSQL()} disabled={dbLoading}><VscPlay /> Run</button>
+        <button className="toolbar-btn" onClick={() => setViewMode(viewMode === 'editor' ? 'designer' : 'editor')} style={{color: viewMode === 'designer' ? 'var(--accent)' : 'inherit'}}>
+          {viewMode === 'editor' ? <><VscGraph /> Schema Designer</> : <><VscCode /> SQL Editor</>}
+        </button>
+        <div className="toolbar-separator" />
+        <button className="toolbar-btn btn-run" onClick={() => executeSQL()} disabled={dbLoading || viewMode !== 'editor'}><VscPlay /> Run</button>
         <button className="toolbar-btn" onClick={() => setIsImportModalOpen(true)}><VscFileMedia /> Import</button>
         <div className="toolbar-dropdown">
            <button className="toolbar-btn"><VscExport /> Export</button>
@@ -486,72 +614,78 @@ export default function App() {
         <div className="resizer-x" onMouseDown={(e) => {
           setIsResizing(true);
           const startX = e.pageX; const startWidth = sidebarWidth;
-          const onMove = (m) => setSidebarWidth(Math.max(150, Math.min(600, startWidth + (m.pageX - startWidth))));
+          const onMove = (m) => setSidebarWidth(Math.max(150, Math.min(600, startWidth + (m.pageX - startX))));
           const onUp = () => { setIsResizing(false); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
           window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
         }} />
 
         <div className="main-area">
-          <div className="editor-container">
-            <div className="tab-bar">
-              {tabs.map(t => (
-                <div key={t.id} className={`tab ${t.id === activeTabId ? 'active' : ''}`} onClick={() => setActiveTabId(t.id)}>
-                  <VscCode color="#4fb6cc" size={14}/><span className="tab-label">{t.title}</span>
-                  <VscClose size={14} className="tab-close-icon" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }} />
+          {viewMode === 'editor' ? (
+            <>
+              <div className="editor-container">
+                <div className="tab-bar">
+                  {tabs.map(t => (
+                    <div key={t.id} className={`tab ${t.id === activeTabId ? 'active' : ''}`} onClick={() => setActiveTabId(t.id)}>
+                      <VscCode color="#4fb6cc" size={14}/><span className="tab-label">{t.title}</span>
+                      <VscClose size={14} className="tab-close-icon" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }} />
+                    </div>
+                  ))}
+                  <div className="tab-plus" onClick={() => addTab()}><VscAdd /></div>
                 </div>
-              ))}
-              <div className="tab-plus" onClick={() => addTab()}><VscAdd /></div>
-            </div>
-            
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              <Editor
-                height="100%"
-                defaultLanguage="sql"
-                theme="vs-dark"
-                value={activeTab?.sql || ''}
-                loading={<div className="editor-placeholder">Loading Editor Engine...</div>}
-                onChange={(val) => updateSQL(activeTabId, val)}
-                options={{
-                  fontSize: 14,
-                  minimap: { enabled: false },
-                  automaticLayout: true,
-                  scrollBeyondLastLine: false,
-                  lineNumbers: "on",
-                  padding: { top: 10 }
-                }}
-              />
-            </div>
-          </div>
+                
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                  <Editor
+                    height="100%"
+                    defaultLanguage="sql"
+                    theme="vs-dark"
+                    value={activeTab?.sql || ''}
+                    loading={<div className="editor-placeholder">Loading Editor Engine...</div>}
+                    onChange={(val) => updateSQL(activeTabId, val)}
+                    options={{
+                      fontSize: 14,
+                      minimap: { enabled: false },
+                      automaticLayout: true,
+                      scrollBeyondLastLine: false,
+                      lineNumbers: "on",
+                      padding: { top: 10 }
+                    }}
+                  />
+                </div>
+              </div>
 
-          <div className="resizer-y" onMouseDown={(e) => {
-            setIsResizing(true);
-            const startY = e.pageY; const startHeight = bottomPanelHeight;
-            const onMove = (m) => setBottomPanelHeight(Math.max(100, Math.min(600, startHeight + (startY - m.pageY))));
-            const onUp = () => { setIsResizing(false); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-            window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
-          }} />
+              <div className="resizer-y" onMouseDown={(e) => {
+                setIsResizing(true);
+                const startY = e.pageY; const startHeight = bottomPanelHeight;
+                const onMove = (m) => setBottomPanelHeight(Math.max(100, Math.min(600, startHeight + (startY - m.pageY))));
+                const onUp = () => { setIsResizing(false); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+                window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+              }} />
 
-          <div className="bottom-panel" style={{ height: bottomPanelHeight, overflow: 'hidden' }}>
-            <div className="panel-tabs"><div className="panel-tab">RESULTS</div></div>
-            <div className="panel-content scrollbar" style={{flex: 1, overflow: 'auto'}}>
-               <div className="results-container">
-                 {dbError && <div className="error-banner">{dbError}</div>}
-                 {results?.results?.map((res, i) => (
-                   <div key={i} className="result-block">
-                     <div className="result-message">
-                       <VscCheck size={14} color="var(--success)"/> Returned {res.rows?.length || 0} rows
-                     </div>
-                     <div className="data-table-wrapper scrollbar">
-                       <table className="data-table">
-                         <thead><tr>{res.columns?.map((c, j) => <th key={j}>{c}</th>)}</tr></thead>
-                         <tbody>{res.rows?.map((r, j) => <tr key={j}>{r.map((cell, k) => <td key={k}>{String(cell)}</td>)}</tr>)}</tbody>
-                       </table>
-                     </div>
-                   </div>
-                 )) || <div style={{padding: '20px', color: '#666'}}>Ready.</div>}
-               </div>
-            </div>
-          </div>
+              <div className="bottom-panel" style={{ height: bottomPanelHeight, overflow: 'hidden' }}>
+                <div className="panel-tabs"><div className="panel-tab">RESULTS</div></div>
+                <div className="panel-content scrollbar" style={{flex: 1, overflow: 'auto'}}>
+                  <div className="results-container">
+                    {dbError && <div className="error-banner">{dbError}</div>}
+                    {results?.results?.map((res, i) => (
+                      <div key={i} className="result-block">
+                        <div className="result-message">
+                          <VscCheck size={14} color="var(--success)"/> Returned {res.rows?.length || 0} rows
+                        </div>
+                        <div className="data-table-wrapper scrollbar">
+                          <table className="data-table">
+                            <thead><tr>{res.columns?.map((c, j) => <th key={j}>{c}</th>)}</tr></thead>
+                            <tbody>{res.rows?.map((r, j) => <tr key={j}>{r.map((cell, k) => <td key={k}>{String(cell)}</td>)}</tr>)}</tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )) || <div style={{padding: '20px', color: '#666'}}>Ready.</div>}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <ERDesigner schema={schemaData} />
+          )}
         </div>
 
         {showAI && (

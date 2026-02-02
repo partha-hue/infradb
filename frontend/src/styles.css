@@ -119,6 +119,8 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.toolbar-separator { width: 1px; height: 20px; background: var(--border); margin: 0 8px; }
+
 .toolbar-btn {
   background: transparent;
   border: none;
@@ -194,7 +196,7 @@ body {
 }
 
 /* Main Area & Tabs */
-.main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-editor); }
+.main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-editor); position: relative; }
 .tab-bar { display: flex; background: #252526; height: 35px; border-bottom: 1px solid #1e1e1e; overflow-x: auto; }
 .tab { min-width: 120px; height: 100%; padding: 0 12px; display: flex; align-items: center; font-size: 12px; color: var(--tab-text); background: var(--tab-inactive); border-right: 1px solid #1e1e1e; cursor: pointer; gap: 8px; position: relative; flex-shrink: 0; }
 .tab.active { background: var(--bg-editor); color: var(--tab-active-text); }
@@ -220,6 +222,136 @@ body {
 .data-table tr:nth-child(even) { background: rgba(255,255,255,0.02); }
 .data-table tr:hover { background: rgba(255,255,255,0.05); }
 
+/* ER Designer Styles */
+.er-designer-container { 
+  flex: 1; 
+  background-color: #1a1a1a; 
+  position: relative;
+  overflow: hidden;
+  display: flex;
+}
+
+.er-canvas {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  background-image: radial-gradient(#333 1px, transparent 1px);
+  background-size: 20px 20px;
+  min-height: 100%;
+  min-width: 100%;
+}
+
+.er-table-node {
+  width: 220px;
+  background: #2d2d2d;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  overflow: hidden;
+  height: fit-content;
+  z-index: 1;
+}
+
+.er-table-node.dragging {
+  z-index: 100;
+  box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+  border-color: var(--accent);
+}
+
+.er-table-header {
+  background: #383838;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+}
+
+.er-table-header:active {
+  cursor: grabbing;
+}
+
+.er-table-body {
+  padding: 5px 0;
+}
+
+.er-column {
+  padding: 4px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #ccc;
+}
+
+.er-column:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.er-column-name {
+  flex: 1;
+}
+
+.er-column-type {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.er-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  background: #252526;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.4);
+  z-index: 1000;
+}
+
+.er-control-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.btn-group {
+  display: flex;
+  background: #3c3c3c;
+  border-radius: 4px;
+  padding: 2px;
+}
+
+.btn-small {
+  background: transparent;
+  border: none;
+  color: #ccc;
+  padding: 4px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.btn-small.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.er-info {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* AI Panel */
 .ai-sidebar-container { background: var(--bg-sidebar); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
 .ai-agent-panel { display: flex; flex-direction: column; height: 100%; }
@@ -238,7 +370,7 @@ body {
 .code-header button:hover { color: #fff; }
 .ai-code-block pre { margin: 0; padding: 10px; font-family: 'Consolas', monospace; font-size: 12px; color: #d4d4d4; overflow-x: auto; }
 
-.ai-input-area { padding: 15px; border-top: 1px solid var(--border); background: var(--bg-sidebar); }
+.ai-input-area { padding: 15px; border-top: 1px solid var(--border); background: var(--bg-sidebar); position: relative; }
 .ai-actions-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .ai-action-btn { background: #3c3c3c; border: 1px solid #444; color: #ccc; font-size: 11px; padding: 5px 12px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 .ai-action-btn:hover { background: #454545; color: #fff; }

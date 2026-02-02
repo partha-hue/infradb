@@ -28,6 +28,8 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from .models import DatabaseConnection, QueryHistory, SavedQuery, AuditLog, UserProfile
 from .db_manager import DBManager
 from .excel_handler import sanitize_column_name, infer_sql_type, generate_create_table_sql, generate_insert_sql
+from .schema_engine import SchemaEngine
+from .ai_advisor import AIAdvisor
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -365,9 +367,82 @@ def load_sample_db(request): return Response({"ok": True})
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def ai_query_suggest(request):
-    prompt = request.data.get("prompt")
+    prompt = request.data.get("prompt", "").strip()
+    current_sql = request.data.get("current_sql", "")
+    action = request.data.get("action", "generate")
+    
     if not co: return Response({"error": "AI Agent not initialized"}, status=503)
+    
+    manager = get_user_manager(request.user.id)
+    schema_context = ""
+    if manager.conn or manager.db_type == "mongodb":
+        advisor = AIAdvisor(manager, co)
+        schema_context = advisor._get_schema_summary()
+
+    if action == "analyze" or prompt.lower() in ["schema analysis", "analyze schema", "optimize database"]:
+        if not manager.conn: return Response({"error": "No active connection for analysis"}, status=400)
+        advisor = AIAdvisor(manager, co)
+        report = advisor.analyze_and_suggest()
+        return Response({"report": report, "is_report": True})
+
+    context_prompt = f"""
+    You are InfraDB AI, a principal DBMS architect.
+    
+    CURRENT DATABASE SCHEMA:
+    {schema_context}
+    
+    CURRENT EDITOR SQL:
+    {current_sql}
+    
+    USER REQUEST: {prompt}
+    ACTION TYPE: {action}
+    
+    INSTRUCTIONS:
+    - If action is 'fix', focus on fixing the editor SQL.
+    - If action is 'explain', explain the editor SQL in detail.
+    - If the user asks about tables or columns, refer to the schema provided above.
+    - Always provide SQL in code blocks like ```sql ... ```.
+    - Be concise and technical.
+    """
+
     try:
-        res = co.chat(message=prompt)
-        return Response({"text": res.text})
+        res = co.chat(message=context_prompt)
+        sql_match = re.search(r'```sql\n(.*?)\n```', res.text, re.DOTALL)
+        sql_extracted = sql_match.group(1) if sql_match else ""
+        return Response({"text": res.text, "sql": sql_extracted})
     except Exception as e: return Response({"error": str(e)}, status=500)
+
+# -------------------------
+# SCHEMA SYNC OPS
+# -------------------------
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def sql_to_designer(request):
+    sql = request.data.get('sql', '')
+    manager = get_user_manager(request.user.id)
+    dialect = manager.db_type or "postgres"
+    engine = SchemaEngine(dialect=dialect)
+    result = engine.sql_to_json(sql)
+    return Response(result)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def designer_to_sql(request):
+    schema_json = request.data.get('schema', {})
+    manager = get_user_manager(request.user.id)
+    dialect = manager.db_type or "postgres"
+    engine = SchemaEngine(dialect=dialect)
+    sql = engine.json_to_sql(schema_json)
+    return Response({"sql": sql})
+
+# -------------------------
+# AI ADVISOR
+# -------------------------
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def ai_analyze_schema(request):
+    manager = get_user_manager(request.user.id)
+    if not manager.conn: return Response({"error": "No connection"}, status=400)
+    advisor = AIAdvisor(manager, co)
+    result = advisor.analyze_and_suggest()
+    return Response(result)
