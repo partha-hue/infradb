@@ -662,6 +662,16 @@ export default function App() {
     executeSQL(sql);
   };
 
+  const handleRun = async (sqlOverride) => {
+    const data = await executeSQL(sqlOverride);
+    // Auto refresh schema if DDL was executed
+    const sqlToRun = (sqlOverride || activeTab?.sql || '').toLowerCase();
+    if (sqlToRun.includes('create') || sqlToRun.includes('drop') || sqlToRun.includes('alter')) {
+      setTimeout(fetchSchemaData, 500);
+    }
+    return data;
+  };
+
   const handleLocalFile = async (action) => {
     try {
       if (action === 'open') {
@@ -739,7 +749,7 @@ export default function App() {
           {viewMode === 'editor' ? <><VscGraph /> Schema Designer</> : <><VscCode /> SQL Editor</>}
         </button>
         <div className="toolbar-separator" />
-        <button className="toolbar-btn btn-run" onClick={() => executeSQL()} disabled={dbLoading || viewMode !== 'editor'}><VscPlay /> Run</button>
+        <button className="toolbar-btn btn-run" onClick={() => handleRun()} disabled={dbLoading || viewMode !== 'editor'}><VscPlay /> Run</button>
         <button className="toolbar-btn" onClick={() => setIsImportModalOpen(true)}><VscFileMedia /> Import</button>
         <div className="toolbar-dropdown">
            <button className="toolbar-btn"><VscExport /> Export</button>
@@ -761,7 +771,10 @@ export default function App() {
         </div>
 
         <div className="sidebar" style={{ width: sidebarWidth }}>
-          <div className="sidebar-header">{activeSidebar === 'db' ? 'Explorer' : 'History'}</div>
+          <div className="sidebar-header" style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+            <span>{activeSidebar === 'db' ? 'Explorer' : 'History'}</span>
+            {activeSidebar === 'db' && <VscRefresh style={{cursor: 'pointer', color: 'var(--text-muted)'}} onClick={fetchSchemaData} title="Refresh Schema" />}
+          </div>
           {activeSidebar === 'db' && (
             <div className="sidebar-search">
               <input 
