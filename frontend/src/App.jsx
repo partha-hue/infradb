@@ -7,10 +7,10 @@ import {
   VscFolderOpened, VscRemoteExplorer, VscSourceControl, VscLink,
   VscKey, VscTable, VscLayers, VscRefresh, VscSymbolField, VscInfo, VscServer, VscShield,
   VscEdit, VscJson, VscCheck, VscQuestion, VscSave, VscFolder, VscExport, VscFileMedia,
-  VscArrowRight, VscGoToFile, VscLock, VscUnlock, VscGraph, VscTelescope, VscLightbulb
+  VscArrowRight, VscGoToFile, VscLock, VscUnlock, VscGraph, VscTelescope, VscLightbulb, VscTrash, VscDiscard
 } from "react-icons/vsc";
 import Editor, { loader } from "@monaco-editor/react";
-import { connectDB, getSchema, suggestQuery, loadSampleDB, getSystemInfo, importFile, exportData } from './api/dbService';
+import { connectDB, getSchema, suggestQuery, loadSampleDB, getSystemInfo, importFile, exportData, designerToSql } from './api/dbService';
 import { useAuth } from './hooks/useAuth';
 import { useEditor } from './context/EditorContext';
 import './styles.css';
@@ -328,28 +328,88 @@ function AIPanel() {
   );
 }
 
-function ERDesigner({ schema }) {
+function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
+  const { activeTabId, executeSQL } = useEditor();
+  const [localSchema, setLocalSchema] = useState(schema);
   const [positions, setPositions] = useState({});
   const [draggedTable, setDraggedTable] = useState(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [editingTable, setEditingTable] = useState(null);
+  const [editingColumn, setEditingColumn] = useState(null); // { tableName, colName }
+  const [history, setHistory] = useState([schema]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+
+  useEffect(() => {
+    setLocalSchema(schema);
+    setHistory([schema]);
+    setHistoryIndex(0);
+  }, [schema]);
 
   const autoLayout = useCallback(() => {
     const newPos = {};
-    schema.tables.forEach((t, i) => {
+    localSchema.tables.forEach((t, i) => {
       newPos[t.name] = { x: 50 + (i % 4) * 250, y: 50 + Math.floor(i / 4) * 320 };
     });
     setPositions(newPos);
-  }, [schema.tables]);
+  }, [localSchema.tables]);
 
   useEffect(() => {
-    if (Object.keys(positions).length === 0 && schema.tables.length > 0) {
+    if (Object.keys(positions).length === 0 && localSchema.tables.length > 0) {
       autoLayout();
     }
-  }, [schema.tables, autoLayout, positions]);
+  }, [localSchema.tables, autoLayout, positions]);
+
+  const updateHistory = (newSchema) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(newSchema);
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+    setLocalSchema(newSchema);
+  };
+
+  const undo = () => {
+    if (historyIndex > 0) {
+      const prevSchema = history[historyIndex - 1];
+      setHistoryIndex(historyIndex - 1);
+      setLocalSchema(prevSchema);
+      syncToEditor(prevSchema, true);
+    }
+  };
+
+  const syncToEditor = async (newSchema, onlyLatest = false) => {
+    try {
+      // If we only want the latest change (e.g. for new table)
+      let schemaToSync = newSchema;
+      if (onlyLatest && newSchema.tables.length > schema.tables.length) {
+        // Find the new table
+        const newTable = newSchema.tables[newSchema.tables.length - 1];
+        schemaToSync = { tables: [newTable] };
+      }
+
+      const result = await designerToSql(schemaToSync);
+      if (result && result.sql) {
+        updateSQL(activeTabId, result.sql);
+      }
+    } catch (err) {
+      console.error("Sync error:", err);
+    }
+  };
+
+  const saveAndSync = async () => {
+    try {
+      const result = await designerToSql(localSchema);
+      if (result && result.sql) {
+        await executeSQL(result.sql);
+        fetchSchemaData();
+      }
+    } catch (err) {
+      console.error("Save error:", err);
+    }
+  };
 
   const onMouseDown = (e, tableName) => {
     setDraggedTable(tableName);
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect = e.currentTarget.closest('.er-table-node').getBoundingClientRect();
     setOffset({
       x: e.clientX - rect.left,
       y: e.clientY - rect.top
@@ -377,10 +437,90 @@ function ERDesigner({ schema }) {
     setDraggedTable(null);
   };
 
+  const addTable = () => {
+    const name = `new_table_${localSchema.tables.length + 1}`;
+    const newTable = {
+      name,
+      columns: [{ name: 'id', type: 'INTEGER', pk: true }]
+    };
+    const newSchema = { ...localSchema, tables: [...localSchema.tables, newTable] };
+    updateHistory(newSchema);
+    setPositions(prev => ({ ...prev, [name]: { x: 100 + window.scrollX, y: 100 + window.scrollY } }));
+    setEditingTable(name); // Auto focus new table name
+    syncToEditor(newSchema, true);
+  };
+
+  const removeTable = (tableName) => {
+    const newSchema = { ...localSchema, tables: localSchema.tables.filter(t => t.name !== tableName) };
+    updateHistory(newSchema);
+    syncToEditor(newSchema);
+  };
+
+  const updateTableName = (oldName, newName) => {
+    if (!newName || oldName === newName) return;
+    const newTables = localSchema.tables.map(t => t.name === oldName ? { ...t, name: newName } : t);
+    const newSchema = { ...localSchema, tables: newTables };
+    updateHistory(newSchema);
+    setPositions(prev => {
+      const next = { ...prev };
+      next[newName] = next[oldName];
+      delete next[oldName];
+      return next;
+    });
+    syncToEditor(newSchema);
+  };
+
+  const addColumn = (tableName) => {
+    const newTables = localSchema.tables.map(t => {
+      if (t.name === tableName) {
+        const colName = `col_${t.columns.length + 1}`;
+        return {
+          ...t,
+          columns: [...t.columns, { name: colName, type: 'VARCHAR(255)', pk: false }]
+        };
+      }
+      return t;
+    });
+    const newSchema = { ...localSchema, tables: newTables };
+    updateHistory(newSchema);
+    syncToEditor(newSchema);
+  };
+
+  const updateColumnName = (tableName, oldColName, newColName) => {
+    if (!newColName || oldColName === newColName) return;
+    const newTables = localSchema.tables.map(t => {
+      if (t.name === tableName) {
+        return {
+          ...t,
+          columns: t.columns.map(c => c.name === oldColName ? { ...c, name: newColName } : c)
+        };
+      }
+      return t;
+    });
+    const newSchema = { ...localSchema, tables: newTables };
+    updateHistory(newSchema);
+    syncToEditor(newSchema);
+  };
+
+  const removeColumn = (tableName, colName) => {
+    const newTables = localSchema.tables.map(t => {
+      if (t.name === tableName) {
+        return {
+          ...t,
+          columns: t.columns.filter(c => c.name !== colName)
+        };
+      }
+      return t;
+    });
+    const newSchema = { ...localSchema, tables: newTables };
+    updateHistory(newSchema);
+    syncToEditor(newSchema);
+  };
+
   return (
     <div className="er-designer-container" onMouseMove={onMouseMove} onMouseUp={onMouseUp}>
       <div className="er-canvas scrollbar">
-        {schema.tables.map(table => (
+        {localSchema.tables.map(table => (
           <div 
             key={table.name} 
             className={`er-table-node ${draggedTable === table.name ? 'dragging' : ''}`}
@@ -390,16 +530,53 @@ function ERDesigner({ schema }) {
               top: positions[table.name]?.y || 0,
             }}
           >
-            <div className="er-table-header" onMouseDown={(e) => onMouseDown(e, table.name)}>
+            <div className="er-table-header" onMouseDown={(e) => onMouseDown(e, table.name)} onDoubleClick={() => setEditingTable(table.name)}>
               <VscTable size={14} color="#4fb6cc" />
-              <span>{table.name}</span>
+              {editingTable === table.name ? (
+                <input 
+                  autoFocus
+                  className="er-table-input"
+                  defaultValue={table.name}
+                  onBlur={(e) => { updateTableName(table.name, e.target.value); setEditingTable(null); }}
+                  onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                />
+              ) : (
+                <span>{table.name}</span>
+              )}
+              <div style={{marginLeft: 'auto', display: 'flex', gap: '4px'}}>
+                <VscAdd 
+                  className="er-header-icon"
+                  onClick={(e) => { e.stopPropagation(); addColumn(table.name); }} 
+                  title="Add Column"
+                />
+                <VscTrash 
+                  className="er-header-icon"
+                  onClick={(e) => { e.stopPropagation(); removeTable(table.name); }}
+                  title="Delete Table"
+                />
+              </div>
             </div>
             <div className="er-table-body">
               {table.columns.map(col => (
-                <div key={col.name} className="er-column">
+                <div key={col.name} className="er-column" onDoubleClick={() => setEditingColumn({ tableName: table.name, colName: col.name })}>
                   {col.pk ? <VscKey size={12} color="#cca700" /> : <div style={{width: 12}} />}
-                  <span className="er-column-name">{col.name}</span>
+                  {editingColumn?.tableName === table.name && editingColumn?.colName === col.name ? (
+                    <input 
+                      autoFocus
+                      className="er-col-input"
+                      defaultValue={col.name}
+                      onBlur={(e) => { updateColumnName(table.name, col.name, e.target.value); setEditingColumn(null); }}
+                      onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+                    />
+                  ) : (
+                    <span className="er-column-name">{col.name}</span>
+                  )}
                   <span className="er-column-type">{col.type}</span>
+                  <VscTrash 
+                    className="col-delete-icon" 
+                    size={12} 
+                    onClick={() => removeColumn(table.name, col.name)}
+                  />
                 </div>
               ))}
             </div>
@@ -408,14 +585,16 @@ function ERDesigner({ schema }) {
       </div>
       <div className="er-controls">
         <div className="er-control-group">
-          <span>Design Mode</span>
+          <span>Actions</span>
           <div className="btn-group">
-            <button className="btn-small active">Visual</button>
+            <button className="btn-small active" onClick={addTable}><VscAdd /> New Table</button>
+            <button className="btn-small" onClick={undo} disabled={historyIndex === 0}><VscDiscard /> Undo</button>
+            <button className="btn-small" onClick={saveAndSync}><VscSave /> Save to DB</button>
             <button className="btn-small" onClick={autoLayout}>Auto-Layout</button>
           </div>
         </div>
         <div className="er-info">
-          Drag headers to organize. Double click to edit schema.
+          Double-click headers/columns to rename. Icons to add/delete. Syncs to DB & Sidebar.
         </div>
       </div>
     </div>
@@ -684,7 +863,7 @@ export default function App() {
               </div>
             </>
           ) : (
-            <ERDesigner schema={schemaData} />
+            <ERDesigner schema={schemaData} updateSQL={updateSQL} fetchSchemaData={fetchSchemaData} />
           )}
         </div>
 
