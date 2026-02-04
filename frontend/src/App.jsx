@@ -471,13 +471,12 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
     setEditingTable(name); // Auto focus new table name
     syncToEditor(newSchema, true);
 
-    // Auto-save to database (non-blocking)
+    // Auto-save to database (non-blocking) - don't fetch back, keep local state
     (async () => {
       try {
         const result = await designerToSql(newSchema);
         if (result && result.sql) {
           await executeSQL(result.sql);
-          await fetchSchemaData();
         }
       } catch (err) {
         console.error("Auto-save error:", err);
@@ -496,7 +495,6 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
         const result = await designerToSql(newSchema);
         if (result && result.sql) {
           await executeSQL(result.sql);
-          await fetchSchemaData();
         }
       } catch (err) {
         console.error("Remove table error:", err);
@@ -523,7 +521,6 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
         const result = await designerToSql(newSchema);
         if (result && result.sql) {
           await executeSQL(result.sql);
-          await fetchSchemaData();
         }
       } catch (err) {
         console.error("Rename table error:", err);
@@ -552,7 +549,6 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
         const result = await designerToSql(newSchema);
         if (result && result.sql) {
           await executeSQL(result.sql);
-          await fetchSchemaData();
         }
       } catch (err) {
         console.error("Add column error:", err);
@@ -581,7 +577,6 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
         const result = await designerToSql(newSchema);
         if (result && result.sql) {
           await executeSQL(result.sql);
-          await fetchSchemaData();
         }
       } catch (err) {
         console.error("Update column name error:", err);
@@ -609,7 +604,6 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
         const result = await designerToSql(newSchema);
         if (result && result.sql) {
           await executeSQL(result.sql);
-          await fetchSchemaData();
         }
       } catch (err) {
         console.error("Remove column error:", err);
