@@ -9,6 +9,8 @@ const __dirname = path.dirname(__filename);
 let mainWindow;
 
 async function createWindow() {
+  const iconPath = path.join(__dirname, '..', 'assets', 'icon.ico');
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -21,6 +23,7 @@ async function createWindow() {
       symbolColor: '#969696',
       height: 35
     },
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload.js'),
       nodeIntegration: false,

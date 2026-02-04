@@ -4,8 +4,18 @@ directories:
   output: release
 files:
   - '**/*'
+  - 'assets/**/*'
 win:
   target:
     - nsis
+  icon: assets/icon.ico
+nsis:
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerHeaderIcon: assets/icon.ico
+mac:
+  icon: assets/logo.png
+linux:
+  icon: assets/logo.png
 publish:
   provider: generic
