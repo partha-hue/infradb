@@ -459,7 +459,7 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
     setDraggedTable(null);
   };
 
-  const addTable = async () => {
+  const addTable = () => {
     const name = `new_table_${localSchema.tables.length + 1}`;
     const newTable = {
       name,
@@ -471,37 +471,40 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
     setEditingTable(name); // Auto focus new table name
     syncToEditor(newSchema, true);
 
-    // Auto-save to database
-    try {
-      const result = await designerToSql(newSchema);
-      if (result && result.sql) {
-        await executeSQL(result.sql);
-        // Refresh explorer and history
-        await fetchSchemaData();
+    // Auto-save to database (non-blocking)
+    (async () => {
+      try {
+        const result = await designerToSql(newSchema);
+        if (result && result.sql) {
+          await executeSQL(result.sql);
+          await fetchSchemaData();
+        }
+      } catch (err) {
+        console.error("Auto-save error:", err);
       }
-    } catch (err) {
-      console.error("Auto-save error:", err);
-    }
+    })();
   };
 
-  const removeTable = async (tableName) => {
+  const removeTable = (tableName) => {
     const newSchema = { ...localSchema, tables: localSchema.tables.filter(t => t.name !== tableName) };
     updateHistory(newSchema);
     syncToEditor(newSchema);
 
-    // Auto-save to database
-    try {
-      const result = await designerToSql(newSchema);
-      if (result && result.sql) {
-        await executeSQL(result.sql);
-        await fetchSchemaData();
+    // Auto-save to database (non-blocking)
+    (async () => {
+      try {
+        const result = await designerToSql(newSchema);
+        if (result && result.sql) {
+          await executeSQL(result.sql);
+          await fetchSchemaData();
+        }
+      } catch (err) {
+        console.error("Remove table error:", err);
       }
-    } catch (err) {
-      console.error("Remove table error:", err);
-    }
+    })();
   };
 
-  const updateTableName = async (oldName, newName) => {
+  const updateTableName = (oldName, newName) => {
     if (!newName || oldName === newName) return;
     const newTables = localSchema.tables.map(t => t.name === oldName ? { ...t, name: newName } : t);
     const newSchema = { ...localSchema, tables: newTables };
@@ -514,19 +517,21 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
     });
     syncToEditor(newSchema);
 
-    // Auto-save to database
-    try {
-      const result = await designerToSql(newSchema);
-      if (result && result.sql) {
-        await executeSQL(result.sql);
-        await fetchSchemaData();
+    // Auto-save to database (non-blocking)
+    (async () => {
+      try {
+        const result = await designerToSql(newSchema);
+        if (result && result.sql) {
+          await executeSQL(result.sql);
+          await fetchSchemaData();
+        }
+      } catch (err) {
+        console.error("Rename table error:", err);
       }
-    } catch (err) {
-      console.error("Rename table error:", err);
-    }
+    })();
   };
 
-  const addColumn = async (tableName) => {
+  const addColumn = (tableName) => {
     const newTables = localSchema.tables.map(t => {
       if (t.name === tableName) {
         const colName = `col_${t.columns.length + 1}`;
@@ -541,19 +546,21 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
     updateHistory(newSchema);
     syncToEditor(newSchema);
 
-    // Auto-save to database
-    try {
-      const result = await designerToSql(newSchema);
-      if (result && result.sql) {
-        await executeSQL(result.sql);
-        await fetchSchemaData();
+    // Auto-save to database (non-blocking)
+    (async () => {
+      try {
+        const result = await designerToSql(newSchema);
+        if (result && result.sql) {
+          await executeSQL(result.sql);
+          await fetchSchemaData();
+        }
+      } catch (err) {
+        console.error("Add column error:", err);
       }
-    } catch (err) {
-      console.error("Add column error:", err);
-    }
+    })();
   };
 
-  const updateColumnName = async (tableName, oldColName, newColName) => {
+  const updateColumnName = (tableName, oldColName, newColName) => {
     if (!newColName || oldColName === newColName) return;
     const newTables = localSchema.tables.map(t => {
       if (t.name === tableName) {
@@ -568,19 +575,21 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
     updateHistory(newSchema);
     syncToEditor(newSchema);
 
-    // Auto-save to database
-    try {
-      const result = await designerToSql(newSchema);
-      if (result && result.sql) {
-        await executeSQL(result.sql);
-        await fetchSchemaData();
+    // Auto-save to database (non-blocking)
+    (async () => {
+      try {
+        const result = await designerToSql(newSchema);
+        if (result && result.sql) {
+          await executeSQL(result.sql);
+          await fetchSchemaData();
+        }
+      } catch (err) {
+        console.error("Update column name error:", err);
       }
-    } catch (err) {
-      console.error("Update column name error:", err);
-    }
+    })();
   };
 
-  const removeColumn = async (tableName, colName) => {
+  const removeColumn = (tableName, colName) => {
     const newTables = localSchema.tables.map(t => {
       if (t.name === tableName) {
         return {
@@ -594,16 +603,18 @@ function ERDesigner({ schema, updateSQL, fetchSchemaData }) {
     updateHistory(newSchema);
     syncToEditor(newSchema);
 
-    // Auto-save to database
-    try {
-      const result = await designerToSql(newSchema);
-      if (result && result.sql) {
-        await executeSQL(result.sql);
-        await fetchSchemaData();
+    // Auto-save to database (non-blocking)
+    (async () => {
+      try {
+        const result = await designerToSql(newSchema);
+        if (result && result.sql) {
+          await executeSQL(result.sql);
+          await fetchSchemaData();
+        }
+      } catch (err) {
+        console.error("Remove column error:", err);
       }
-    } catch (err) {
-      console.error("Remove column error:", err);
-    }
+    })();
   };
 
   return (
