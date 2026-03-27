@@ -3,10 +3,11 @@
 #include <thread>
 #include <chrono>
 #include <vector>
+#include <memory>
 #include "infradb/core/Engine.hpp"
+#include "infradb/core/QueryExecutor.hpp"
 
-// Minimal HTTP Server using simple socket for health check on Render
-// For production, consider using Crow or Drogon
+// Simple Health Check Server for Deployment (Render/Docker)
 #ifdef _WIN32
     #include <winsock2.h>
     #include <ws2tcpip.h>
@@ -26,7 +27,8 @@ void run_health_check_server(int port) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
     #ifndef _WIN32
-        setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt));
+        int opt_val = 1;
+        setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt_val, sizeof(opt_val));
     #endif
 
     struct sockaddr_in address;
@@ -35,16 +37,16 @@ void run_health_check_server(int port) {
     address.sin_port = htons(port);
 
     if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
-        std::cerr << "Bind failed to port " << port << std::endl;
+        std::cerr << "[Core] Bind failed to port " << port << std::endl;
         return;
     }
 
-    if (listen(server_fd, 3) < 0) {
-        std::cerr << "Listen failed" << std::endl;
+    if (listen(server_fd, 5) < 0) {
+        std::cerr << "[Core] Listen failed" << std::endl;
         return;
     }
 
-    std::cout << "InfraDB Core Health Server running on port " << port << std::endl;
+    std::cout << "[Core] Health Check Server running on port " << port << std::endl;
 
     while (true) {
         int new_socket = accept(server_fd, nullptr, nullptr);
@@ -62,21 +64,28 @@ void run_health_check_server(int port) {
 }
 
 int main() {
-    std::cout << "Starting InfraDB Core Engine..." << std::endl;
+    std::cout << "-------------------------------------------" << std::endl;
+    std::cout << "   InfraDB Native Engine v3.0 (SIMD/AVX)   " << std::endl;
+    std::cout << "-------------------------------------------" << std::endl;
     
-    // Initialize Engine
-    infradb::core::Engine engine;
+    // Initialize High-Performance Components
+    auto engine = std::make_unique<infradb::core::Engine>();
+    auto executor = std::make_unique<infradb::core::QueryExecutor>();
     
-    // Get port from environment or default to 8080
+    std::cout << "[Core] Engine Components Initialized Successfully." << std::endl;
+
+    // Get port from environment (Render/Cloud) or default to 8080
     const char* port_env = std::getenv("PORT");
     int port = port_env ? std::stoi(port_env) : 8080;
 
-    // Start health check server in a separate thread
+    // Start health check server (Requirement for most Cloud Deploys)
     std::thread health_thread(run_health_check_server, port);
     
-    std::cout << "InfraDB Core is active and monitoring." << std::endl;
+    std::cout << "[Core] InfraDB is active and listening for optimized workloads." << std::endl;
     
-    // Keep main thread alive
+    // In a production scenario, we would also start the gRPC or WebSocket 
+    // server here to handle real-time database traffic.
+    
     health_thread.join();
     
     return 0;
