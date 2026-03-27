@@ -10,12 +10,34 @@ import {
 const EditorContext = createContext();
 
 const INITIAL_TABS = [
-  { id: '1', title: 'query1.sql', sql: 'SELECT * FROM churn_data LIMIT 100;', type: 'query', dirty: false }
+  { id: '1', title: 'query1.sql', sql: 'SELECT * FROM advertising LIMIT 100;', type: 'query', dirty: false }
 ];
 
 const INITIAL_INSTANCES = [
-  { id: 'inst-1', name: 'InfraNative_Primary', engine: 'sqlite', status: 'RUNNING', memory: '4GB', database: 'default.db' },
-  { id: 'inst-2', name: 'Production_Cluster', engine: 'infranative', status: 'RUNNING', memory: '16GB', host: 'infradb-core.onrender.com', port: 443 },
+  { id: 'inst-1', name: 'Production_DB', engine: 'postgresql', status: 'RUNNING', memory: '32GB', database: 'prod_main' },
+  { id: 'inst-2', name: 'Testing_Env', engine: 'mysql', status: 'RUNNING', memory: '8GB', database: 'test_db' },
+  { id: 'inst-3', name: 'Analytics_Warehouse', engine: 'snowflake', status: 'RUNNING', memory: '128GB', database: 'raw_data' },
+];
+
+const MOCK_SCHEMA = [
+  { table: 'advertising', columns: [
+    { name: 'id', type: 'uuid', nullable: false },
+    { name: 'campaign_name', type: 'varchar(255)', nullable: false },
+    { name: 'spend', type: 'decimal(12,2)', nullable: false },
+    { name: 'impressions', type: 'integer', nullable: true },
+  ]},
+  { table: 'churn_data', columns: [
+    { name: 'customer_id', type: 'varchar(50)', nullable: false },
+    { name: 'tenure', type: 'integer', nullable: true },
+    { name: 'contract_type', type: 'varchar(20)', nullable: false },
+    { name: 'monthly_charges', type: 'decimal(10,2)', nullable: false },
+  ]}
+];
+
+const MOCK_HISTORY = [
+  { id: 1, sql: 'SELECT * FROM advertising LIMIT 100;', status: 'SUCCESS', duration: '45ms', timestamp: '2 mins ago' },
+  { id: 2, sql: 'UPDATE churn_data SET status="active" WHERE id=502;', status: 'SUCCESS', duration: '12ms', timestamp: '1 hour ago' },
+  { id: 3, sql: 'DROP TABLE legacy_users;', status: 'FAILED', error: 'Permission denied', duration: '5ms', timestamp: '3 hours ago' },
 ];
 
 export const EditorProvider = ({ children }) => {
@@ -37,12 +59,15 @@ export const EditorProvider = ({ children }) => {
     return localStorage.getItem('infradb_active_instance_id') || INITIAL_INSTANCES[0].id;
   });
 
-  const [activeView, setActiveView] = useState('editor'); // 'editor', 'schema', 'history', 'insights'
+  const [activeView, setActiveView] = useState('editor'); 
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [aiResponse, setAiResponse] = useState(null);
   
+  const [schema] = useState(MOCK_SCHEMA);
+  const [history] = useState(MOCK_HISTORY);
+
   const [metrics, setMetrics] = useState({
     memoryUsage: 4100,
     cpuThreads: 12,
@@ -105,7 +130,6 @@ export const EditorProvider = ({ children }) => {
     try {
       const data = await optimizeQueryService(activeTab.sql);
       setAiResponse(data);
-      // Automatically update the editor with optimized SQL if confirmed or just show it
       return data;
     } catch (err) {
       setError("AI Optimization failed: " + err.message);
@@ -154,6 +178,7 @@ export const EditorProvider = ({ children }) => {
       tabs, activeTabId, setActiveTabId, activeTab,
       instances, activeInstanceId, setActiveInstanceId, activeInstance, addInstance,
       activeView, setActiveView,
+      schema, history,
       updateSQL, executeSQL, optimizeSQL, explainSQL, 
       results, loading, error, aiResponse, setAiResponse,
       addTab, closeTab, metrics
