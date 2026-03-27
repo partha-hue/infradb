@@ -2,17 +2,18 @@
 # Exit on error
 set -o errexit
 
+echo "--- Starting Build Process ---"
+
 # --- BACKEND BUILD ---
 echo "Installing Backend Dependencies..."
 pip install -r backend/requirements.txt
 
-echo "Collecting Static Files..."
-python backend/manage.py collectstatic --no-input
-
 echo "Running Database Migrations..."
-python backend/manage.py migrate --no-input
-
-echo "Seeding Startup Data..."
-python backend/manage.py seed_db
+# Check if manage.py exists before running
+if [ -f backend/manage.py ]; then
+    python backend/manage.py migrate --no-input
+else
+    echo "Warning: backend/manage.py not found, skipping migrations."
+fi
 
 echo "Build Completed Successfully!"
