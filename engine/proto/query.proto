@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package infradb.engine;
+
+service QueryService {
+  rpc ExecuteQuery(QueryRequest) returns (stream QueryResponse);
+}
+
+message QueryRequest {
+  string sql = 1;
+  string database = 2;
+  map<string, string> parameters = 3;
+}
+
+message QueryResponse {
+  string row_json = 1;
+  uint64 execution_time_ms = 2;
+  bool is_last_chunk = 3;
+  string error_message = 4;
+}
