@@ -1,5 +1,11 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { runQuery as runQueryService, connectDB, fetchWorkspaces } from '../api/dbService';
+import { 
+  runQuery as runQueryService, 
+  connectDB, 
+  fetchWorkspaces,
+  optimizeQuery as optimizeQueryService,
+  explainQuery as explainQueryService
+} from '../api/dbService';
 
 const EditorContext = createContext();
 
@@ -31,9 +37,11 @@ export const EditorProvider = ({ children }) => {
     return localStorage.getItem('infradb_active_instance_id') || INITIAL_INSTANCES[0].id;
   });
 
+  const [activeView, setActiveView] = useState('editor'); // 'editor', 'schema', 'history', 'insights'
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [aiResponse, setAiResponse] = useState(null);
   
   const [metrics, setMetrics] = useState({
     memoryUsage: 4100,
@@ -44,6 +52,14 @@ export const EditorProvider = ({ children }) => {
 
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
   const activeInstance = instances.find(i => i.id === activeInstanceId) || instances[0];
+
+  useEffect(() => {
+    localStorage.setItem('infradb_tabs', JSON.stringify(tabs));
+  }, [tabs]);
+
+  useEffect(() => {
+    localStorage.setItem('infradb_active_tab_id', activeTabId);
+  }, [activeTabId]);
 
   useEffect(() => {
     if (activeInstance && activeInstance.host) {
@@ -68,9 +84,9 @@ export const EditorProvider = ({ children }) => {
 
     setLoading(true);
     setError(null);
+    setResults(null);
     
     try {
-      // Pass activeInstanceId as connection_id
       const data = await runQueryService(sqlToRun, activeInstanceId);
       setResults(data);
       return data;
@@ -83,10 +99,40 @@ export const EditorProvider = ({ children }) => {
     }
   }, [activeTab, activeInstanceId]);
 
+  const optimizeSQL = async () => {
+    if (!activeTab.sql.trim()) return;
+    setLoading(true);
+    try {
+      const data = await optimizeQueryService(activeTab.sql);
+      setAiResponse(data);
+      // Automatically update the editor with optimized SQL if confirmed or just show it
+      return data;
+    } catch (err) {
+      setError("AI Optimization failed: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const explainSQL = async () => {
+    if (!activeTab.sql.trim()) return;
+    setLoading(true);
+    try {
+      const data = await explainQueryService(activeTab.sql);
+      setAiResponse(data);
+      return data;
+    } catch (err) {
+      setError("AI Explain failed: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const addTab = (sql = '', title = '') => {
     const newId = String(Date.now());
     setTabs(prev => [...prev, { id: newId, title: title || `query${prev.length + 1}.sql`, sql, type: 'query' }]);
     setActiveTabId(newId);
+    setActiveView('editor');
   };
 
   const closeTab = (id) => {
@@ -107,7 +153,10 @@ export const EditorProvider = ({ children }) => {
     <EditorContext.Provider value={{
       tabs, activeTabId, setActiveTabId, activeTab,
       instances, activeInstanceId, setActiveInstanceId, activeInstance, addInstance,
-      updateSQL, executeSQL, results, loading, error, addTab, closeTab, metrics
+      activeView, setActiveView,
+      updateSQL, executeSQL, optimizeSQL, explainSQL, 
+      results, loading, error, aiResponse, setAiResponse,
+      addTab, closeTab, metrics
     }}>
       {children}
     </EditorContext.Provider>

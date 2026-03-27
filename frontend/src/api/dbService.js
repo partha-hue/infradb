@@ -23,9 +23,7 @@ export const runQuery = async (sql, connectionId) => {
   return response.data;
 };
 
-// Added back to fix build errors in EditorContext
 export const connectDB = async (config) => {
-  // In v1, we might just validate the connection or ping it
   const response = await api.post('/databases/connections/test/', config);
   return response.data;
 };
@@ -37,6 +35,17 @@ export const getJobStatus = async (jobId) => {
 
 export const fetchWorkspaces = async () => {
   const response = await api.get('/databases/workspaces/');
+  return response.data;
+};
+
+// AI Assistant APIs
+export const optimizeQuery = async (sql) => {
+  const response = await api.post('/ai/optimize/', { sql });
+  return response.data;
+};
+
+export const explainQuery = async (sql) => {
+  const response = await api.post('/ai/explain/', { sql });
   return response.data;
 };
 

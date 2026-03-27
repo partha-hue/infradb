@@ -5,9 +5,7 @@ import {
   Activity, 
   Settings, 
   Plus, 
-  Code2,
   Box,
-  Cpu,
   History,
   Shield,
   Terminal,
@@ -40,7 +38,13 @@ const NavItem = ({ icon: Icon, label, active, badge, onClick, color }) => (
 );
 
 export const Sidebar = () => {
-  const { instances, activeInstanceId, setActiveInstanceId } = useEditor();
+  const { 
+    instances, 
+    activeInstanceId, 
+    setActiveInstanceId, 
+    activeView, 
+    setActiveView 
+  } = useEditor();
 
   return (
     <aside className="w-60 bg-sidebar flex flex-col h-full select-none">
@@ -62,10 +66,31 @@ export const Sidebar = () => {
         <div>
           <div className="px-3 mb-2 text-[10px] font-bold text-muted-foreground/50 uppercase tracking-[0.2em]">Workspace</div>
           <div className="space-y-0.5">
-            <NavItem icon={Terminal} label="SQL Editor" active />
-            <NavItem icon={Layers} label="Schema Explorer" />
-            <NavItem icon={History} label="Query History" />
-            <NavItem icon={Zap} label="AI Insights" badge="NEW" />
+            <NavItem 
+              icon={Terminal} 
+              label="SQL Editor" 
+              active={activeView === 'editor'} 
+              onClick={() => setActiveView('editor')} 
+            />
+            <NavItem 
+              icon={Layers} 
+              label="Schema Explorer" 
+              active={activeView === 'schema'} 
+              onClick={() => setActiveView('schema')} 
+            />
+            <NavItem 
+              icon={History} 
+              label="Query History" 
+              active={activeView === 'history'} 
+              onClick={() => setActiveView('history')} 
+            />
+            <NavItem 
+              icon={Zap} 
+              label="AI Insights" 
+              badge="NEW" 
+              active={activeView === 'insights'} 
+              onClick={() => setActiveView('insights')} 
+            />
           </div>
         </div>
 

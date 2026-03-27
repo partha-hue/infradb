@@ -1,10 +1,19 @@
 import React from 'react';
-import { Sparkles, Zap, MessageSquare, Wand2, Lightbulb, History, HelpCircle } from 'lucide-react';
+import { Sparkles, Zap, MessageSquare, Wand2, Lightbulb, History, HelpCircle, Loader2 } from 'lucide-react';
+import { useEditor } from '../../context/EditorContext';
 
-const AIAction = ({ icon: Icon, label, description }) => (
-  <button className="w-full text-left p-3 rounded-lg border border-border bg-panel hover:bg-muted/50 hover:border-brand/30 transition-all group">
+const AIAction = ({ icon: Icon, label, description, onClick, loading }) => (
+  <button 
+    onClick={onClick}
+    disabled={loading}
+    className="w-full text-left p-3 rounded-lg border border-border bg-panel hover:bg-muted/50 hover:border-brand/30 transition-all group disabled:opacity-50"
+  >
     <div className="flex items-center gap-2 mb-1">
-      <Icon className="w-3.5 h-3.5 text-brand group-hover:scale-110 transition-transform" />
+      {loading ? (
+        <Loader2 className="w-3.5 h-3.5 text-brand animate-spin" />
+      ) : (
+        <Icon className="w-3.5 h-3.5 text-brand group-hover:scale-110 transition-transform" />
+      )}
       <span className="text-xs font-bold text-foreground uppercase tracking-tight">{label}</span>
     </div>
     <p className="text-[10px] text-muted-foreground leading-relaxed">{description}</p>
@@ -12,6 +21,8 @@ const AIAction = ({ icon: Icon, label, description }) => (
 );
 
 export const AISidebar = () => {
+  const { optimizeSQL, explainSQL, loading, aiResponse } = useEditor();
+
   return (
     <aside className="w-80 bg-sidebar border-l border-border flex flex-col overflow-hidden hidden lg:flex">
       <div className="h-12 flex items-center px-4 border-b border-border gap-2">
@@ -25,21 +36,26 @@ export const AISidebar = () => {
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {/* Quick Actions */}
         <div className="space-y-3">
-          <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-1">Optimization</div>
+          <div className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-[0.2em] px-1">Optimization</div>
           <AIAction 
             icon={Zap} 
             label="Optimize Query" 
             description="Rewrite query to use indices and reduce L3 cache misses." 
+            onClick={optimizeSQL}
+            loading={loading}
           />
           <AIAction 
             icon={Lightbulb} 
             label="Explain Plan" 
             description="Visualize the execution tree and find bottlenecks." 
+            onClick={explainSQL}
+            loading={loading}
           />
           <AIAction 
             icon={Wand2} 
             label="Fix Syntax" 
             description="Identify and resolve SQL dialect errors automatically." 
+            onClick={() => {}} // TODO: Implement fixSyntax
           />
         </div>
 
@@ -51,10 +67,26 @@ export const AISidebar = () => {
             </div>
             <History className="w-3 h-3 text-muted-foreground cursor-pointer" />
           </div>
-          <div className="flex-1 p-3 text-[11px] font-mono text-muted-foreground space-y-3">
-            <div className="text-brand/80"># Ready to assist.</div>
-            <div>{">"} System: InfraDB Vector Engine detected. AVX-512 optimization active.</div>
-            <div className="text-foreground">AI: I noticed your query on 'churn_data' doesn't have a LIMIT. Adding one would reduce execution time by 85%. Would you like me to apply it?</div>
+          <div className="flex-1 p-3 text-[11px] font-mono text-muted-foreground space-y-3 overflow-y-auto">
+            {aiResponse ? (
+              <div className="space-y-4">
+                <div className="text-brand/80"># Response from AI Agent:</div>
+                {aiResponse.optimized_sql && (
+                   <div className="bg-background/80 p-2 rounded border border-brand/20 text-foreground whitespace-pre-wrap">
+                     {aiResponse.optimized_sql}
+                   </div>
+                )}
+                <div className="text-foreground leading-relaxed italic">
+                  {aiResponse.explanation}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="text-brand/80"># Ready to assist.</div>
+                <div>{">"} System: InfraDB Vector Engine detected. AVX-512 optimization active.</div>
+                <div className="text-foreground">AI: I noticed your query on 'churn_data' doesn't have a LIMIT. Adding one would reduce execution time by 85%. Would you like me to apply it?</div>
+              </>
+            )}
           </div>
           <div className="p-2 border-t border-border bg-sidebar/50">
             <div className="relative">
