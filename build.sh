@@ -1,19 +1,25 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Exit on error
-set -o errexit
+set -e
 
-echo "--- Starting Build Process ---"
+echo "--- InfraDB Production Build Starting ---"
 
-# --- BACKEND BUILD ---
-echo "Installing Backend Dependencies..."
-pip install -r backend/requirements.txt
-
-echo "Running Database Migrations..."
-# Check if manage.py exists before running
-if [ -f backend/manage.py ]; then
-    python backend/manage.py migrate --no-input
+# Install Python dependencies
+if [ -f "backend/requirements.txt" ]; then
+    echo "Installing dependencies..."
+    pip install --upgrade pip
+    pip install -r backend/requirements.txt
 else
-    echo "Warning: backend/manage.py not found, skipping migrations."
+    echo "Error: backend/requirements.txt not found"
+    exit 1
 fi
 
-echo "Build Completed Successfully!"
+# Run Migrations
+if [ -f "backend/manage.py" ]; then
+    echo "Running migrations..."
+    python backend/manage.py migrate --no-input
+else
+    echo "Warning: backend/manage.py not found"
+fi
+
+echo "--- Build Successful ---"
