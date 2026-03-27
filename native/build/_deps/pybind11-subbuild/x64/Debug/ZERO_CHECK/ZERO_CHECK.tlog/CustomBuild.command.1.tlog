@@ -1,0 +1,10 @@
+^C:\INFRADB\NATIVE\BUILD\_DEPS\PYBIND11-SUBBUILD\CMAKEFILES\28427D4A3AA9E60C40D24AB64C192709\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/infradb/native/build/_deps/pybind11-subbuild -BC:/infradb/native/build/_deps/pybind11-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/infradb/native/build/_deps/pybind11-subbuild/pybind11-populate.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

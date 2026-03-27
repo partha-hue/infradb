@@ -1,0 +1,31 @@
+# Enterprise Django Backend
+Django>=5.0.0
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+psycopg2-binary
+mysql-connector-python
+mysqlclient
+sqlite3
+requests
+python-dotenv
+pandas
+whitenoise
+gunicorn
+
+# High-Performance Logic
+cohere
+numpy
+pandas
+fastavro
+celery
+redis
+
+# Deployment Support
+dj-database-url
+whitenoise
+typing-extensions
+typing-inspection
+pydantic
+openai
+google-genai
