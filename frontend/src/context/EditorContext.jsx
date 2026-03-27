@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { runQuery as runQueryService, connectDB } from '../api/dbService';
+import { runQuery as runQueryService, connectDB, fetchWorkspaces } from '../api/dbService';
 
 const EditorContext = createContext();
 
@@ -46,14 +46,14 @@ export const EditorProvider = ({ children }) => {
   const activeInstance = instances.find(i => i.id === activeInstanceId) || instances[0];
 
   useEffect(() => {
-    if (activeInstance) {
+    if (activeInstance && activeInstance.host) {
       connectDB({
         engine: activeInstance.engine,
         host: activeInstance.host,
         port: activeInstance.port,
         database: activeInstance.database
       }).catch(err => {
-        console.warn("Warm-up connection initiated...");
+        console.warn("Engine warm-up initiated...");
       });
     }
   }, [activeInstanceId]);
@@ -70,19 +70,18 @@ export const EditorProvider = ({ children }) => {
     setError(null);
     
     try {
-      const data = await runQueryService(sqlToRun);
+      // Pass activeInstanceId as connection_id
+      const data = await runQueryService(sqlToRun, activeInstanceId);
       setResults(data);
       return data;
     } catch (err) {
-      const msg = err.code === 'ECONNABORTED' 
-        ? "Engine Cold Start: Server is waking up. Please try again in 10 seconds."
-        : (err.response?.data?.error || err.message);
+      const msg = err.response?.data?.error || err.message;
       setError(msg);
       setResults({ results: [] });
     } finally {
       setLoading(false);
     }
-  }, [activeTab, activeInstance]);
+  }, [activeTab, activeInstanceId]);
 
   const addTab = (sql = '', title = '') => {
     const newId = String(Date.now());
