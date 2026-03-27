@@ -4,27 +4,31 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "#09090b", // Zinc 950
-        foreground: "#fafafa",
-        card: "#121215",
-        border: "#27272a",
-        accent: {
-          DEFAULT: "#10b981", // Emerald 500
-          foreground: "#052e16",
+        // High-end Zinc palette (Linear-inspired)
+        background: "#080809",
+        sidebar: "#0c0c0d",
+        panel: "#111113",
+        border: "rgba(255, 255, 255, 0.06)",
+        "border-bright": "rgba(255, 255, 255, 0.12)",
+        
+        brand: {
+          DEFAULT: "#10b981", // Emerald
+          glow: "rgba(16, 185, 129, 0.15)",
         },
-        muted: {
-          DEFAULT: "#27272a",
-          foreground: "#a1a1aa",
-        },
-        sidebar: "#0c0c0e",
+        
+        // Semantic Enterprise colors
+        production: "#f43f5e", // Rose
+        staging: "#f59e0b",   // Amber
+        development: "#10b981", // Emerald
+      },
+      fontSize: {
+        'xs': '11px',
+        'sm': '13px',
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "Menlo", "monospace"],
+        sans: ['"Inter"', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'monospace'],
       },
-      boxShadow: {
-        'glow': '0 0 15px -3px rgba(16, 185, 129, 0.2)',
-      }
     },
   },
   plugins: [],
