@@ -1,13 +1,13 @@
 #pragma once
+#include <vector>
 #include <memory_resource>
 #include <mutex>
 
 namespace infradb::memory {
 
 /**
- * GlobalMemoryPool manages a large pre-allocated slab of memory.
- * It uses std::pmr::monotonic_buffer_resource for zero-deallocation overhead
- * during query lifetimes.
+ * Global Memory Pool for High-Performance Buffer Allocation.
+ * Uses std::pmr (Polymorphic Memory Resources) for efficient allocations.
  */
 class GlobalMemoryPool {
 public:
@@ -17,23 +17,14 @@ public:
     }
 
     std::pmr::memory_resource* get_resource() {
-        return &res_;
-    }
-
-    // Reset the pool (use with caution, typically at the end of a query)
-    void release() {
-        res_.release();
+        return &pool_resource;
     }
 
 private:
-    GlobalMemoryPool() : buffer_(1024 * 1024 * 512), res_(buffer_.data(), buffer_.size()) {}
+    GlobalMemoryPool() : pool_resource(std::pmr::get_default_resource()) {}
     
-    std::vector<std::byte> buffer_;
-    std::pmr::monotonic_buffer_resource res_;
-
-    // Prevent copying
-    GlobalMemoryPool(const GlobalMemoryPool&) = delete;
-    GlobalMemoryPool& operator=(const GlobalMemoryPool&) = delete;
+    // In production, this would be a large pre-allocated upstream resource
+    std::pmr::monotonic_buffer_resource pool_resource;
 };
 
 } // namespace infradb::memory

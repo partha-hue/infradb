@@ -1,0 +1,33 @@
+# Production Dockerfile for C++ Engine
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    pkg-config \
+    libgrpc++-dev \
+    libprotobuf-dev \
+    protobuf-compiler-grpc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY . .
+
+RUN mkdir -p engine/build && cd engine/build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    make -j$(nproc)
+
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y \
+    libgrpc++1.33 \
+    libprotobuf23 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/engine/build/infradb_engine /usr/local/bin/infradb_engine
+
+EXPOSE 50051
+
+CMD ["infradb_engine"]

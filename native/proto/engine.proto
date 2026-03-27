@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package infradb.engine;
+
+service QueryEngine {
+  rpc ExecuteQuery (QueryRequest) returns (QueryResponse) {}
+  rpc ExplainQuery (QueryRequest) returns (ExplainResponse) {}
+}
+
+message QueryRequest {
+  string query = 1;
+  string database_id = 2;
+  map<string, string> parameters = 3;
+}
+
+message QueryResponse {
+  string job_id = 1;
+  repeated ColumnMetadata metadata = 2;
+  bytes data_arrow = 3; // Apache Arrow format for zero-copy
+  int64 rows_affected = 4;
+  double execution_time_ms = 5;
+  string error = 6;
+}
+
+message ColumnMetadata {
+  string name = 1;
+  string type = 2;
+}
+
+message ExplainResponse {
+  string plan_json = 1;
+  double estimated_cost = 2;
+}

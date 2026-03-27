@@ -1,12 +1,12 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE,
+  timeout: 10000,
 });
 
-// Add token to requests if available
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('infradb_token');
   if (token) {
@@ -15,13 +15,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-export const runQuery = async (query) => {
-  const response = await api.post('/run_query/', { query });
+export const runQuery = async (sql, connectionId) => {
+  const response = await api.post('/query/jobs/run/', { 
+    sql, 
+    connection_id: connectionId 
+  });
   return response.data;
 };
 
-export const connectDB = async (config) => {
-  const response = await api.post('/connect/', config);
+export const getJobStatus = async (jobId) => {
+  const response = await api.get(`/query/jobs/${jobId}/status/`);
+  return response.data;
+};
+
+export const fetchWorkspaces = async () => {
+  const response = await api.get('/databases/workspaces/');
   return response.data;
 };
 
