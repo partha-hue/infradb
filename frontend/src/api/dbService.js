@@ -23,6 +23,13 @@ export const runQuery = async (sql, connectionId) => {
   return response.data;
 };
 
+// Added back to fix build errors in EditorContext
+export const connectDB = async (config) => {
+  // In v1, we might just validate the connection or ping it
+  const response = await api.post('/databases/connections/test/', config);
+  return response.data;
+};
+
 export const getJobStatus = async (jobId) => {
   const response = await api.get(`/query/jobs/${jobId}/status/`);
   return response.data;

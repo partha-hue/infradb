@@ -53,7 +53,7 @@ export const AISidebar = () => {
           </div>
           <div className="flex-1 p-3 text-[11px] font-mono text-muted-foreground space-y-3">
             <div className="text-brand/80"># Ready to assist.</div>
-            <div>> System: InfraDB Vector Engine detected. AVX-512 optimization active.</div>
+            <div>{">"} System: InfraDB Vector Engine detected. AVX-512 optimization active.</div>
             <div className="text-foreground">AI: I noticed your query on 'churn_data' doesn't have a LIMIT. Adding one would reduce execution time by 85%. Would you like me to apply it?</div>
           </div>
           <div className="p-2 border-t border-border bg-sidebar/50">

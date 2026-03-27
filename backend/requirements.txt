@@ -13,6 +13,7 @@ whitenoise
 gunicorn
 
 # High-Performance Logic
+# Note: Using lower versions or alternative packages if pydantic-core/maturin fails on Render's read-only FS
 cohere
 numpy
 pandas
@@ -25,6 +26,8 @@ dj-database-url
 whitenoise
 typing-extensions
 typing-inspection
-pydantic
+pydantic==2.7.0
 openai
 google-genai
+grpcio
+grpcio-tools
