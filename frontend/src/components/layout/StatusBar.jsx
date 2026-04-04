@@ -20,7 +20,7 @@ const StatusItem = ({ icon: Icon, label, color = "text-muted-foreground", animat
 );
 
 export const StatusBar = () => {
-  const { loading, activeInstance } = useEditor();
+  const { loading, activeInstance, metrics } = useEditor();
 
   return (
     <footer className="h-6 bg-sidebar border-t border-border flex items-center justify-between select-none">
@@ -36,9 +36,16 @@ export const StatusBar = () => {
         />
         <StatusItem 
           icon={Activity} 
-          label="0.45ms" 
+          label={metrics.executionMs != null ? `${Number(metrics.executionMs).toFixed(3)}ms` : '--'} 
           color="text-emerald-400" 
         />
+        {metrics.nativeAcceleration && (
+          <StatusItem
+            icon={Cpu}
+            label="Native"
+            color="text-brand"
+          />
+        )}
         {loading && (
           <StatusItem 
             icon={Clock} 

@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { CommandPalette } from '../ui/CommandPalette';
 import { AISidebar } from '../ai/AISidebar';
+import { Header } from './Header';
 
 export const Shell = ({ children }) => {
   const [showAI, setShowAI] = useState(true);
@@ -16,6 +17,7 @@ export const Shell = ({ children }) => {
         
         {/* Main Workspace */}
         <main className="flex-1 flex flex-col min-w-0 bg-panel relative border-x border-border">
+          <Header />
           {children}
         </main>
 

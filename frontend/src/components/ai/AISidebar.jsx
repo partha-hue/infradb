@@ -21,7 +21,7 @@ const AIAction = ({ icon: Icon, label, description, onClick, loading }) => (
 );
 
 export const AISidebar = () => {
-  const { optimizeSQL, explainSQL, loading, aiResponse } = useEditor();
+  const { optimizeSQL, explainSQL, fixSyntax, loading, aiResponse } = useEditor();
 
   return (
     <aside className="w-80 bg-sidebar border-l border-border flex flex-col overflow-hidden hidden lg:flex">
@@ -55,7 +55,8 @@ export const AISidebar = () => {
             icon={Wand2} 
             label="Fix Syntax" 
             description="Identify and resolve SQL dialect errors automatically." 
-            onClick={() => {}} // TODO: Implement fixSyntax
+            onClick={fixSyntax}
+            loading={loading}
           />
         </div>
 
@@ -75,6 +76,38 @@ export const AISidebar = () => {
                    <div className="bg-background/80 p-2 rounded border border-brand/20 text-foreground whitespace-pre-wrap">
                      {aiResponse.optimized_sql}
                    </div>
+                )}
+                {aiResponse.fixed_sql && (
+                   <div className="bg-background/80 p-2 rounded border border-brand/20 text-foreground whitespace-pre-wrap">
+                     {aiResponse.fixed_sql}
+                   </div>
+                )}
+                {Array.isArray(aiResponse.plan) && aiResponse.plan.length > 0 && (
+                  <div className="space-y-2">
+                    {aiResponse.plan.map((step, index) => (
+                      <div key={`${step.detail}-${index}`} className="border border-border rounded p-2 bg-background/80">
+                        <div className="text-brand/80">[{index + 1}] {step.detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {Array.isArray(aiResponse.recommendations) && aiResponse.recommendations.length > 0 && (
+                  <div className="space-y-2">
+                    {aiResponse.recommendations.map((item) => (
+                      <div key={item} className="text-foreground leading-relaxed">
+                        - {item}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {Array.isArray(aiResponse.fixes) && aiResponse.fixes.length > 0 && (
+                  <div className="space-y-2">
+                    {aiResponse.fixes.map((item) => (
+                      <div key={item} className="text-foreground leading-relaxed">
+                        - {item}
+                      </div>
+                    ))}
+                  </div>
                 )}
                 <div className="text-foreground leading-relaxed italic">
                   {aiResponse.explanation}

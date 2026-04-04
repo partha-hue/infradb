@@ -28,6 +28,11 @@ export const connectDB = async (config) => {
   return response.data;
 };
 
+export const fetchSchema = async (connectionId) => {
+  const response = await api.get(`/databases/connections/${connectionId}/schema/`);
+  return response.data;
+};
+
 export const getJobStatus = async (jobId) => {
   const response = await api.get(`/query/jobs/${jobId}/status/`);
   return response.data;
@@ -38,14 +43,24 @@ export const fetchWorkspaces = async () => {
   return response.data;
 };
 
-// AI Assistant APIs
-export const optimizeQuery = async (sql) => {
-  const response = await api.post('/ai/optimize/', { sql });
+export const fetchQueryHistory = async (limit = 50) => {
+  const response = await api.get(`/query/jobs/history/?limit=${limit}`);
   return response.data;
 };
 
-export const explainQuery = async (sql) => {
-  const response = await api.post('/ai/explain/', { sql });
+// AI Assistant APIs
+export const optimizeQuery = async (sql, connectionId) => {
+  const response = await api.post('/ai/optimize/', { sql, connection_id: connectionId });
+  return response.data;
+};
+
+export const explainQuery = async (sql, connectionId) => {
+  const response = await api.post('/ai/explain/', { sql, connection_id: connectionId });
+  return response.data;
+};
+
+export const fixSyntax = async (sql, connectionId) => {
+  const response = await api.post('/ai/fix-syntax/', { sql, connection_id: connectionId });
   return response.data;
 };
 

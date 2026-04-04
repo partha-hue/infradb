@@ -1,41 +1,49 @@
-import grpc
-import engine_pb2
-import engine_pb2_grpc
-from django.conf import settings
+from __future__ import annotations
 
-class EngineClient:
+import sys
+from pathlib import Path
+from time import perf_counter
+
+
+class NativeEngineClient:
     def __init__(self):
-        # In production, this address would come from environment variables
-        self.channel = grpc.insecure_channel('localhost:50051')
-        self.stub = engine_pb2_grpc.QueryEngineStub(self.channel)
+        self._engine_module = None
 
-    def execute_query(self, query, database_id):
-        request = engine_pb2.QueryRequest(
-            query=query,
-            database_id=str(database_id)
-        )
-        try:
-            response = self.stub.ExecuteQuery(request)
-            return {
-                "job_id": response.job_id,
-                "metadata": [{"name": m.name, "type": m.type} for m in response.metadata],
-                "rows_affected": response.rows_affected,
-                "execution_time_ms": response.execution_time_ms,
-                "error": response.error
-            }
-        except grpc.RpcError as e:
-            return {"error": f"gRPC error: {e.details()}"}
+    @property
+    def available(self):
+        return self._load_engine() is not None
 
-    def explain_query(self, query, database_id):
-        request = engine_pb2.QueryRequest(
-            query=query,
-            database_id=str(database_id)
-        )
+    def scan_database(self, file_path: str):
+        module = self._load_engine()
+        if module is None:
+            return {"available": False}
+
+        started = perf_counter()
+        engine = module.Engine()
+        batch = engine.execute_optimized_scan(file_path)
+        duration_ms = round((perf_counter() - started) * 1000, 3)
+        return {
+            "available": True,
+            "scan_row_estimate": batch.row_count,
+            "scan_duration_ms": duration_ms,
+            "label": "pybind-native",
+        }
+
+    def _load_engine(self):
+        if self._engine_module is not None:
+            return self._engine_module
+
+        release_dir = Path(__file__).resolve().parent.parent.parent / "native" / "build" / "Release"
+        if release_dir.exists():
+            release_dir_str = str(release_dir)
+            if release_dir_str not in sys.path:
+                sys.path.insert(0, release_dir_str)
+
         try:
-            response = self.stub.ExplainQuery(request)
-            return {
-                "plan_json": response.plan_json,
-                "estimated_cost": response.estimated_cost
-            }
-        except grpc.RpcError as e:
-            return {"error": f"gRPC error: {e.details()}"}
+            import infradb_core  # type: ignore
+        except Exception:
+            self._engine_module = None
+        else:
+            self._engine_module = infradb_core
+
+        return self._engine_module

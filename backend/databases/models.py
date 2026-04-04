@@ -14,6 +14,7 @@ class Workspace(models.Model):
 
 class DatabaseConnection(models.Model):
     ENGINE_CHOICES = [
+        ('SQLITE', 'SQLite'),
         ('INFRADB', 'InfraDB Native'),
         ('POSTGRES', 'PostgreSQL'),
         ('MYSQL', 'MySQL'),
@@ -24,14 +25,15 @@ class DatabaseConnection(models.Model):
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE, related_name='connections')
     name = models.CharField(max_length=255)
     engine = models.CharField(max_length=50, choices=ENGINE_CHOICES, default='INFRADB')
-    
-    # Connection details (encrypted in production)
-    host = models.CharField(max_length=255)
-    port = models.IntegerField()
+
+    # Connection details. In production, secrets should be encrypted and fetched from a vault.
+    host = models.CharField(max_length=255, blank=True, default='')
+    port = models.IntegerField(default=0)
     database_name = models.CharField(max_length=255)
-    username = models.CharField(max_length=255)
-    password = models.CharField(max_length=255) # Use encrypted field in real prod
-    
+    username = models.CharField(max_length=255, blank=True, default='')
+    password = models.CharField(max_length=255, blank=True, default='')
+    file_path = models.CharField(max_length=512, blank=True, default='')
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

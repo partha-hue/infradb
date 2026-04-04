@@ -43,7 +43,8 @@ export const Sidebar = () => {
     activeInstanceId, 
     setActiveInstanceId, 
     activeView, 
-    setActiveView 
+    setActiveView,
+    bootstrapping,
   } = useEditor();
 
   return (
@@ -101,16 +102,22 @@ export const Sidebar = () => {
             <Plus className="w-3 h-3 hover:text-foreground cursor-pointer transition-colors" />
           </div>
           <div className="space-y-0.5">
-            {instances.map(inst => (
-              <NavItem 
-                key={inst.id}
-                icon={Database}
-                label={inst.name}
-                active={activeInstanceId === inst.id}
-                onClick={() => setActiveInstanceId(inst.id)}
-                color={inst.id === 'inst-2' ? 'text-production' : 'text-development'}
-              />
-            ))}
+            {bootstrapping ? (
+              <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground">Loading...</div>
+            ) : instances.length ? (
+              instances.map(inst => (
+                <NavItem 
+                  key={inst.id}
+                  icon={Database}
+                  label={inst.name}
+                  active={activeInstanceId === inst.id}
+                  onClick={() => setActiveInstanceId(inst.id)}
+                  color={inst.engine === 'SQLITE' ? 'text-brand' : 'text-development'}
+                />
+              ))
+            ) : (
+              <div className="px-3 py-2 text-[10px] uppercase tracking-widest text-muted-foreground">No connections</div>
+            )}
           </div>
         </div>
 

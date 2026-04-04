@@ -4,7 +4,18 @@ from .models import Workspace, DatabaseConnection, SchemaMetadata
 class DatabaseConnectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = DatabaseConnection
-        fields = ['id', 'name', 'engine', 'host', 'port', 'database_name', 'username', 'is_active', 'created_at']
+        fields = [
+            'id',
+            'name',
+            'engine',
+            'host',
+            'port',
+            'database_name',
+            'username',
+            'file_path',
+            'is_active',
+            'created_at',
+        ]
         extra_kwargs = {'password': {'write_only': True}}
 
 class WorkspaceSerializer(serializers.ModelSerializer):

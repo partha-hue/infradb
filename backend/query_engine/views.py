@@ -1,18 +1,27 @@
-from rest_framework import viewsets, status
+from pathlib import Path
+
+from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+
+from databases.models import DatabaseConnection
+from databases.services import ConsoleBootstrapService
+
 from .models import QueryJob
 from .serializers import QueryJobSerializer
-from .engine_client import EngineClient
-import threading
+from .services import QueryExecutionError, QueryExecutionService
 
-class QueryViewSet(viewsets.ModelViewSet):
-    queryset = QueryJob.objects.all()
+
+class QueryViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = QueryJob.objects.all().select_related("connection")
     serializer_class = QueryJobSerializer
-    engine_client = EngineClient()
+    permission_classes = [permissions.AllowAny]
+    execution_service = QueryExecutionService()
+    bootstrap = ConsoleBootstrapService(Path(__file__).resolve().parent.parent)
 
     def get_queryset(self):
-        return self.queryset.filter(user=self.request.user)
+        actor = self.bootstrap.get_actor(getattr(self.request, "user", None))
+        return self.queryset.filter(user=actor).order_by("-created_at")
 
     @action(detail=False, methods=['post'])
     def run(self, request):
@@ -22,31 +31,51 @@ class QueryViewSet(viewsets.ModelViewSet):
         if not sql_query or not connection_id:
             return Response({"error": "Missing sql or connection_id"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Create Job Record
-        job = QueryJob.objects.create(
-            user=request.user,
-            connection_id=connection_id,
-            sql_query=sql_query,
-            status='RUNNING'
-        )
+        actor = self.bootstrap.get_actor(getattr(request, "user", None))
+        try:
+            connection = DatabaseConnection.objects.get(pk=connection_id, workspace__owner=actor)
+        except DatabaseConnection.DoesNotExist:
+            return Response({"error": "Connection not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # In a real production environment, this would be dispatched to a Celery worker
-        # or handled via an async gRPC call to keep the request/response cycle short.
-        def execute():
-            result = self.engine_client.execute_query(sql_query, connection_id)
-            if "error" in result and result["error"]:
-                job.status = 'FAILED'
-                job.error_message = result["error"]
-            else:
-                job.status = 'COMPLETED'
-                job.execution_time_ms = result.get('execution_time_ms')
-                job.rows_affected = result.get('rows_affected')
-            job.save()
+        try:
+            result = self.execution_service.execute(connection=connection, sql=sql_query, actor=actor)
+        except QueryExecutionError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Simple thread for demonstration; use Celery in full prod
-        threading.Thread(target=execute).start()
+        return Response(result, status=status.HTTP_200_OK)
 
-        return Response({
-            "job_id": str(job.id),
-            "status": job.status
-        }, status=status.HTTP_202_ACCEPTED)
+    @action(detail=False, methods=["get"])
+    def history(self, request):
+        actor = self.bootstrap.get_actor(getattr(request, "user", None))
+        limit = int(request.query_params.get("limit", 50))
+        return Response({"items": self.execution_service.history(actor=actor, limit=min(limit, 200))})
+
+    @action(detail=True, methods=["get"])
+    def status(self, request, pk=None):
+        job = self.get_object()
+        return Response(self.execution_service.job_status(job=job))
+
+    @action(detail=False, methods=["post"])
+    def explain(self, request):
+        sql_query = request.data.get("sql")
+        connection_id = request.data.get("connection_id")
+
+        if not sql_query or not connection_id:
+            return Response({"error": "Missing sql or connection_id"}, status=status.HTTP_400_BAD_REQUEST)
+
+        actor = self.bootstrap.get_actor(getattr(request, "user", None))
+        try:
+            connection = DatabaseConnection.objects.get(pk=connection_id, workspace__owner=actor)
+        except DatabaseConnection.DoesNotExist:
+            return Response({"error": "Connection not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            payload = self.execution_service.explain(connection=connection, sql=sql_query)
+        except QueryExecutionError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(payload)

@@ -2,6 +2,8 @@ from rest_framework import serializers
 from .models import QueryJob
 
 class QueryJobSerializer(serializers.ModelSerializer):
+    connection_name = serializers.CharField(source='connection.name', read_only=True)
+
     class Meta:
         model = QueryJob
         fields = '__all__'
