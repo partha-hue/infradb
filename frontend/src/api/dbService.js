@@ -1,10 +1,25 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const PRODUCTION_API_FALLBACK = 'https://infradb-backend.onrender.com/api/v1';
+
+const resolveApiBase = () => {
+  const configuredBase = import.meta.env.VITE_API_URL?.trim();
+  if (configuredBase) {
+    return configuredBase.replace(/\/+$/, '');
+  }
+
+  if (import.meta.env.DEV) {
+    return 'http://localhost:8000/api/v1';
+  }
+
+  return PRODUCTION_API_FALLBACK;
+};
+
+const API_BASE = resolveApiBase();
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 10000,
+  timeout: 25000,
 });
 
 api.interceptors.request.use((config) => {
