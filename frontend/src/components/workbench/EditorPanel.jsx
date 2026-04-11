@@ -163,6 +163,26 @@ const ResultTable = ({ data }) => {
 
 export const EditorPanel = () => {
   const { activeTab, updateSQL, executeSQL, results, loading, error, activeView, activeInstance, metrics } = useEditor();
+  const downloadResults = () => {
+    if (!results?.results?.length) return;
+
+    const columns = Object.keys(results.results[0]);
+    const escapeCsv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [
+      columns.map(escapeCsv).join(','),
+      ...results.results.map((row) => columns.map((column) => escapeCsv(typeof row[column] === 'object' ? JSON.stringify(row[column]) : row[column])).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${activeTab?.title?.replace(/\.sql$/i, '') || 'query-results'}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const renderMainContent = () => {
     switch (activeView) {
@@ -238,7 +258,7 @@ export const EditorPanel = () => {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
-                  <button className="p-1.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-all">
+                  <button onClick={downloadResults} className="p-1.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-all">
                     <Download className="w-3.5 h-3.5" />
                   </button>
                   <button className="p-1.5 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-all">

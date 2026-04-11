@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 from time import perf_counter_ns
@@ -14,6 +15,7 @@ from .models import QueryJob
 
 READ_QUERY_PREFIXES = {"SELECT", "WITH", "PRAGMA", "EXPLAIN"}
 ROW_PREVIEW_LIMIT = 500
+ENABLE_NATIVE_SCAN_METRICS = os.environ.get("INFRA_ENABLE_NATIVE_SCAN_METRICS", "0").lower() in {"1", "true", "yes", "on"}
 
 
 class QueryExecutionError(Exception):
@@ -46,7 +48,11 @@ class QueryExecutionService:
             job.save(update_fields=["status", "execution_time_ms", "error_message", "finished_at"])
             raise
 
-        native_metrics = self.native_client.scan_database(connection.file_path) if connection.file_path else {"available": False}
+        native_metrics = (
+            self.native_client.scan_database(connection.file_path)
+            if ENABLE_NATIVE_SCAN_METRICS and connection.file_path
+            else {"available": False}
+        )
         duration_ms = round((perf_counter_ns() - started_ns) / 1_000_000, 3)
 
         job.status = "COMPLETED"

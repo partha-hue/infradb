@@ -4,9 +4,12 @@ import {
   fetchWorkspaces,
   fetchSchema as fetchSchemaService,
   fetchQueryHistory,
+  createConnection as createConnectionService,
+  createWorkspace as createWorkspaceService,
   optimizeQuery as optimizeQueryService,
   explainQuery as explainQueryService,
   fixSyntax as fixSyntaxService,
+  aiChat as aiChatService,
 } from '../api/dbService';
 
 const EditorContext = createContext();
@@ -58,6 +61,13 @@ export const EditorProvider = ({ children }) => {
   const [schema, setSchema] = useState([]);
   const [history, setHistory] = useState([]);
   const [metrics, setMetrics] = useState(INITIAL_METRICS);
+  const [aiMessages, setAiMessages] = useState([
+    {
+      role: 'assistant',
+      content:
+        "System ready. Ask me to optimize, explain, or fix your current SQL and I'll run it against backend APIs.",
+    },
+  ]);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) || tabs[0];
   const activeInstance = instances.find((instance) => instance.id === activeInstanceId) || instances[0] || null;
@@ -187,6 +197,10 @@ export const EditorProvider = ({ children }) => {
     try {
       const data = await optimizeQueryService(activeTab.sql, activeInstanceId);
       setAiResponse({ type: 'optimize', ...data });
+      setAiMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: data.explanation || 'Optimization complete.', payload: data },
+      ]);
       return data;
     } catch (err) {
       setError(`AI optimization failed: ${err.response?.data?.error || err.message}`);
@@ -203,6 +217,10 @@ export const EditorProvider = ({ children }) => {
     try {
       const data = await explainQueryService(activeTab.sql, activeInstanceId);
       setAiResponse({ type: 'explain', ...data });
+      setAiMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: data.explanation || 'Execution plan generated.', payload: data },
+      ]);
       return data;
     } catch (err) {
       setError(`AI explain failed: ${err.response?.data?.error || err.message}`);
@@ -219,6 +237,10 @@ export const EditorProvider = ({ children }) => {
     try {
       const data = await fixSyntaxService(activeTab.sql, activeInstanceId);
       setAiResponse({ type: 'fix', ...data });
+      setAiMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: data.explanation || 'Syntax fixes generated.', payload: data },
+      ]);
       if (data.fixed_sql && activeTab?.id) {
         updateSQL(activeTab.id, data.fixed_sql);
       }
@@ -260,6 +282,114 @@ export const EditorProvider = ({ children }) => {
     setActiveView('editor');
   };
 
+  const createWorkspace = async (name) => {
+    const workspaceName = String(name || '').trim();
+    if (!workspaceName) {
+      setError('Workspace name is required.');
+      return null;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const created = await createWorkspaceService(workspaceName);
+      await refreshWorkspaces();
+      return created;
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createConnection = async ({
+    workspaceId,
+    name,
+    databaseName,
+    filePath,
+    engine = 'SQLITE',
+  }) => {
+    if (!workspaceId) {
+      setError('Workspace is required to create a connection.');
+      return null;
+    }
+
+    const payload = {
+      workspace: workspaceId,
+      name: String(name || '').trim() || `Conn-${Date.now()}`,
+      engine: String(engine || 'SQLITE').toUpperCase(),
+      database_name: String(databaseName || '').trim() || 'db',
+      file_path: String(filePath || '').trim(),
+      host: '',
+      port: 0,
+      username: '',
+      password: '',
+      is_active: true,
+    };
+
+    if (!payload.file_path) {
+      setError('Database file path is required for SQLite connections.');
+      return null;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const created = await createConnectionService(payload);
+      await refreshWorkspaces();
+      setActiveInstanceId(created.id);
+      return created;
+    } catch (err) {
+      const message = err.response?.data?.detail || err.response?.data?.error || JSON.stringify(err.response?.data || err.message);
+      setError(message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sendAIMessage = async (message) => {
+    const text = String(message || '').trim();
+    if (!text) return null;
+
+    setAiMessages((prev) => [...prev, { role: 'user', content: text }]);
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await aiChatService({
+        message: text,
+        sql: activeTab?.sql || '',
+        connectionId: activeInstanceId,
+      });
+      setAiResponse({ type: 'chat', ...data });
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.message || data.explanation || 'Completed.',
+          payload: data,
+        },
+      ]);
+
+      if (data.fixed_sql && activeTab?.id) {
+        updateSQL(activeTab.id, data.fixed_sql);
+      }
+      if (data.optimized_sql && activeTab?.id) {
+        updateSQL(activeTab.id, data.optimized_sql);
+      }
+
+      return data;
+    } catch (err) {
+      const message = err.response?.data?.error || err.message;
+      setError(message);
+      setAiMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${message}` }]);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <EditorContext.Provider
       value={{
@@ -285,6 +415,8 @@ export const EditorProvider = ({ children }) => {
         fixSyntax,
         restoreHistoryQuery,
         refreshWorkspaces,
+        createWorkspace,
+        createConnection,
         refreshSchema,
         refreshHistory,
         results,
@@ -292,6 +424,8 @@ export const EditorProvider = ({ children }) => {
         bootstrapping,
         error,
         aiResponse,
+        aiMessages,
+        sendAIMessage,
         setAiResponse,
         addTab,
         closeTab,

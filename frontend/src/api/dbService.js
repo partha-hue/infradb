@@ -19,7 +19,7 @@ const API_BASE = resolveApiBase();
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 25000,
+  timeout: 90000,
 });
 
 api.interceptors.request.use((config) => {
@@ -30,11 +30,38 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+const isRetriableError = (error) => {
+  if (!error) return false;
+  if (error.code === 'ECONNABORTED') return true;
+  if (!error.response) return true;
+  return error.response.status >= 500;
+};
+
+const requestWithRetry = async (requestFactory, retries = 1) => {
+  let lastError = null;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await requestFactory();
+    } catch (error) {
+      lastError = error;
+      if (attempt === retries || !isRetriableError(error)) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 600 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+};
+
 export const runQuery = async (sql, connectionId) => {
-  const response = await api.post('/query/jobs/run/', { 
-    sql, 
-    connection_id: connectionId 
-  });
+  const response = await requestWithRetry(
+    () =>
+      api.post('/query/jobs/run/', {
+        sql,
+        connection_id: connectionId,
+      }),
+    1,
+  );
   return response.data;
 };
 
@@ -55,11 +82,21 @@ export const getJobStatus = async (jobId) => {
 
 export const fetchWorkspaces = async () => {
   const response = await api.get('/databases/workspaces/');
-  return response.data;
+  return response.data.results || response.data;
 };
 
 export const fetchQueryHistory = async (limit = 50) => {
   const response = await api.get(`/query/jobs/history/?limit=${limit}`);
+  return response.data;
+};
+
+export const createWorkspace = async (name) => {
+  const response = await api.post('/databases/workspaces/', { name });
+  return response.data;
+};
+
+export const createConnection = async (payload) => {
+  const response = await api.post('/databases/connections/', payload);
   return response.data;
 };
 
@@ -76,6 +113,15 @@ export const explainQuery = async (sql, connectionId) => {
 
 export const fixSyntax = async (sql, connectionId) => {
   const response = await api.post('/ai/fix-syntax/', { sql, connection_id: connectionId });
+  return response.data;
+};
+
+export const aiChat = async ({ message, sql, connectionId }) => {
+  const response = await api.post('/ai/chat/', {
+    message,
+    sql,
+    connection_id: connectionId,
+  });
   return response.data;
 };
 

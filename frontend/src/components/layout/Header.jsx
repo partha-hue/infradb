@@ -21,7 +21,30 @@ const Tab = ({ tab, active, onSelect, onClose }) => (
 );
 
 export const Header = () => {
-  const { tabs, activeTabId, setActiveTabId, addTab, closeTab, executeSQL, loading } = useEditor();
+  const { tabs, activeTabId, setActiveTabId, addTab, closeTab, executeSQL, loading, activeTab } = useEditor();
+
+  const downloadCurrentSQL = () => {
+    const sql = activeTab?.sql || '';
+    const fileName = activeTab?.title || 'query.sql';
+    const blob = new Blob([sql], { type: 'text/sql;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const shareCurrentSQL = async () => {
+    const sql = activeTab?.sql || '';
+    try {
+      await navigator.clipboard.writeText(sql);
+    } catch {
+      // Clipboard API may be unavailable in non-secure contexts.
+    }
+  };
 
   return (
     <header className="h-12 bg-sidebar border-b border-border flex flex-col justify-end">
@@ -45,10 +68,10 @@ export const Header = () => {
         </div>
 
         <div className="flex items-center gap-2 pl-4">
-          <button className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
+          <button onClick={downloadCurrentSQL} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
             <Save className="w-4 h-4" />
           </button>
-          <button className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
+          <button onClick={shareCurrentSQL} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors">
             <Share2 className="w-4 h-4" />
           </button>
           <div className="w-px h-4 bg-border mx-1" />

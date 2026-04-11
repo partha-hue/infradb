@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Sparkles, Zap, MessageSquare, Wand2, Lightbulb, History, HelpCircle, Loader2 } from 'lucide-react';
 import { useEditor } from '../../context/EditorContext';
 
@@ -21,7 +21,16 @@ const AIAction = ({ icon: Icon, label, description, onClick, loading }) => (
 );
 
 export const AISidebar = () => {
-  const { optimizeSQL, explainSQL, fixSyntax, loading, aiResponse } = useEditor();
+  const { optimizeSQL, explainSQL, fixSyntax, loading, aiResponse, aiMessages, sendAIMessage } = useEditor();
+  const [message, setMessage] = useState('');
+
+  const submitMessage = async (event) => {
+    event.preventDefault();
+    const text = message.trim();
+    if (!text) return;
+    setMessage('');
+    await sendAIMessage(text);
+  };
 
   return (
     <aside className="w-80 bg-sidebar border-l border-border flex flex-col overflow-hidden hidden lg:flex">
@@ -69,7 +78,18 @@ export const AISidebar = () => {
             <History className="w-3 h-3 text-muted-foreground cursor-pointer" />
           </div>
           <div className="flex-1 p-3 text-[11px] font-mono text-muted-foreground space-y-3 overflow-y-auto">
-            {aiResponse ? (
+            {aiMessages?.length ? (
+              <div className="space-y-3">
+                {aiMessages.map((entry, index) => (
+                  <div key={`${entry.role}-${index}`} className={entry.role === 'user' ? 'text-foreground' : 'text-muted-foreground'}>
+                    <div className={`text-[10px] uppercase tracking-widest mb-1 ${entry.role === 'user' ? 'text-brand' : 'text-muted-foreground/80'}`}>
+                      {entry.role === 'user' ? 'You' : 'Assistant'}
+                    </div>
+                    <div className="leading-relaxed whitespace-pre-wrap">{entry.content}</div>
+                  </div>
+                ))}
+              </div>
+            ) : aiResponse ? (
               <div className="space-y-4">
                 <div className="text-brand/80"># Response from AI Agent:</div>
                 {aiResponse.optimized_sql && (
@@ -121,18 +141,20 @@ export const AISidebar = () => {
               </>
             )}
           </div>
-          <div className="p-2 border-t border-border bg-sidebar/50">
+          <form onSubmit={submitMessage} className="p-2 border-t border-border bg-sidebar/50">
             <div className="relative">
               <input 
                 type="text" 
                 placeholder="Ask AI anything..." 
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
                 className="w-full bg-background border border-border rounded px-3 py-2 text-xs focus:outline-none focus:border-brand/50"
               />
               <div className="absolute right-2 top-2">
                 <kbd className="px-1 py-0.5 bg-muted rounded border border-border text-[9px] text-muted-foreground">↵</kbd>
               </div>
             </div>
-          </div>
+          </form>
         </div>
       </div>
 

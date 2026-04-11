@@ -1,14 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { Search, Database, Command, Code2, Cpu, History, Zap, Settings, Shield } from 'lucide-react';
+import { useEditor } from '../../context/EditorContext';
 
 export const CommandPalette = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const { executeSQL, optimizeSQL, setActiveView } = useEditor();
 
   useEffect(() => {
     const down = (e) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setIsOpen((open) => !open);
+      }
+      if (e.key === 'Escape') {
+        setIsOpen(false);
       }
     };
     document.addEventListener('keydown', down);
@@ -39,18 +44,18 @@ export const CommandPalette = () => {
           <div className="px-3 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Recent Commands</div>
           
           <div className="space-y-1">
-            <CommandItem icon={Code2} label="Execute Current Selection" shortcut="⌘ ↵" />
-            <CommandItem icon={Zap} label="Optimize Query (AI)" shortcut="⌘ ⌥ O" color="text-brand" />
-            <CommandItem icon={History} label="Search Execution Logs" shortcut="⌘ L" />
+            <CommandItem icon={Code2} label="Execute Current Selection" shortcut="⌘ ↵" onClick={() => { executeSQL(); setIsOpen(false); }} />
+            <CommandItem icon={Zap} label="Optimize Query (AI)" shortcut="⌘ ⌥ O" color="text-brand" onClick={() => { optimizeSQL(); setIsOpen(false); }} />
+            <CommandItem icon={History} label="Search Execution Logs" shortcut="⌘ L" onClick={() => { setActiveView('history'); setIsOpen(false); }} />
           </div>
 
           <div className="mt-4 px-3 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Navigation</div>
           
           <div className="space-y-1">
-            <CommandItem icon={Database} label="Switch to Production Cluster" shortcut="G P" />
-            <CommandItem icon={Cpu} label="View Engine Metrics" shortcut="G M" />
-            <CommandItem icon={Shield} label="Manage Team Permissions" />
-            <CommandItem icon={Settings} label="Global Settings" shortcut="⌘ ," />
+            <CommandItem icon={Database} label="Switch to SQL Editor" shortcut="G P" onClick={() => { setActiveView('editor'); setIsOpen(false); }} />
+            <CommandItem icon={Cpu} label="View Engine Metrics" shortcut="G M" onClick={() => { setActiveView('insights'); setIsOpen(false); }} />
+            <CommandItem icon={Shield} label="Open Query History" onClick={() => { setActiveView('history'); setIsOpen(false); }} />
+            <CommandItem icon={Settings} label="Open Schema Explorer" shortcut="⌘ ," onClick={() => { setActiveView('schema'); setIsOpen(false); }} />
           </div>
         </div>
 
@@ -69,8 +74,8 @@ export const CommandPalette = () => {
   );
 };
 
-const CommandItem = ({ icon: Icon, label, shortcut, color = "text-foreground" }) => (
-  <div className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted cursor-pointer transition-colors group">
+const CommandItem = ({ icon: Icon, label, shortcut, color = "text-foreground", onClick }) => (
+  <button type="button" onClick={onClick} className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-muted cursor-pointer transition-colors group text-left">
     <div className="flex items-center gap-3">
       <Icon className={`w-4 h-4 ${color}`} />
       <span className="text-sm">{label}</span>
@@ -78,5 +83,5 @@ const CommandItem = ({ icon: Icon, label, shortcut, color = "text-foreground" })
     {shortcut && (
       <span className="text-[10px] font-mono text-muted-foreground tracking-tighter">{shortcut}</span>
     )}
-  </div>
+  </button>
 );
