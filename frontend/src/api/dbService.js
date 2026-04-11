@@ -117,12 +117,54 @@ export const fixSyntax = async (sql, connectionId) => {
 };
 
 export const aiChat = async ({ message, sql, connectionId }) => {
-  const response = await api.post('/ai/chat/', {
+  const payload = {
     message,
     sql,
     connection_id: connectionId,
-  });
-  return response.data;
+  };
+
+  try {
+    const response = await api.post('/ai/chat/', payload);
+    return response.data;
+  } catch (error) {
+    // Backward compatibility for production backends that don't have /ai/chat yet.
+    if (error?.response?.status !== 404) {
+      throw error;
+    }
+
+    const lowered = String(message || '').toLowerCase();
+    if (/fix|syntax|error|typo/.test(lowered)) {
+      const data = await fixSyntax(sql, connectionId);
+      return {
+        intent: 'fix-syntax',
+        message: data.explanation || 'I fixed syntax issues in the current SQL.',
+        ...data,
+      };
+    }
+
+    if (/explain|plan/.test(lowered)) {
+      const data = await explainQuery(sql, connectionId);
+      return {
+        intent: 'explain',
+        message: data.explanation || 'I generated an execution plan.',
+        ...data,
+      };
+    }
+
+    if (/optimi[sz]e|faster|performance|improve/.test(lowered)) {
+      const data = await optimizeQuery(sql, connectionId);
+      return {
+        intent: 'optimize',
+        message: data.explanation || 'I generated an optimized SQL variant.',
+        ...data,
+      };
+    }
+
+    return {
+      intent: 'general',
+      message: "This backend version doesn't support AI chat yet. Try: optimize, explain, or fix syntax.",
+    };
+  }
 };
 
 export default api;

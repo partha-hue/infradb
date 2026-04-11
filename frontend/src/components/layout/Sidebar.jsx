@@ -49,6 +49,7 @@ export const Sidebar = () => {
     createWorkspace,
     createConnection,
     loading,
+    error,
   } = useEditor();
   const [showConnectionModal, setShowConnectionModal] = useState(false);
   const [form, setForm] = useState({
@@ -222,6 +223,11 @@ export const Sidebar = () => {
           <form onSubmit={submitCreateConnection} className="w-full max-w-lg rounded-xl border border-border bg-sidebar shadow-2xl">
             <div className="px-5 py-4 border-b border-border text-sm font-bold uppercase tracking-widest">Create Connection</div>
             <div className="p-5 space-y-4">
+              {error && (
+                <div className="rounded border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300">
+                  {error}
+                </div>
+              )}
               <label className="block">
                 <div className="text-[11px] mb-1 text-muted-foreground">Workspace</div>
                 <select
