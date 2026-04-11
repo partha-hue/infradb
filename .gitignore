@@ -28,3 +28,6 @@ default.db
 # IDEs
 .idea/
 .vscode/
+
+# C++ build artifacts
+build/

@@ -35,7 +35,11 @@ public:
     VectorBatch(size_t num_rows, std::pmr::memory_resource* alloc) 
         : num_rows_(num_rows), allocator_(alloc) {}
 
-    ~VectorBatch() = default;
+    ~VectorBatch();
+    VectorBatch(const VectorBatch&) = delete;
+    VectorBatch& operator=(const VectorBatch&) = delete;
+    VectorBatch(VectorBatch&&) = default;
+    VectorBatch& operator=(VectorBatch&&) = default;
 
     void add_column(DataType type, const std::string& name);
     

@@ -1,7 +1,17 @@
 #include "infradb/execution/VectorBatch.hpp"
-#include <iostream>
+#include <cstring>
+#include <memory>
 
 namespace infradb::execution {
+
+VectorBatch::~VectorBatch() {
+    for (const auto& col : columns_) {
+        if (col.type == DataType::STRING && col.data != nullptr) {
+            auto* strings = static_cast<std::string*>(col.data);
+            std::destroy_n(strings, num_rows_);
+        }
+    }
+}
 
 void VectorBatch::add_column(DataType type, const std::string& name) {
     Column col;
@@ -22,17 +32,19 @@ void VectorBatch::add_column(DataType type, const std::string& name) {
     if (byte_size > 0) {
         col.data = allocator_->allocate(byte_size);
         col.null_mask = static_cast<bool*>(allocator_->allocate(sizeof(bool) * num_rows_));
-        
-        // Initialize null mask to false (no nulls)
-        for (size_t i = 0; i < num_rows_; ++i) {
-            col.null_mask[i] = false;
+
+        if (type == DataType::STRING) {
+            auto* strings = static_cast<std::string*>(col.data);
+            std::uninitialized_default_construct_n(strings, num_rows_);
         }
+
+        std::memset(col.null_mask, 0, sizeof(bool) * num_rows_);
     } else {
         col.data = nullptr;
         col.null_mask = nullptr;
     }
 
-    columns_.push_back(col);
+    columns_.push_back(std::move(col));
 }
 
 } // namespace infradb::execution

@@ -1,7 +1,6 @@
 #include "infradb/core/Engine.hpp"
-#include <iostream>
 #include <chrono>
-#include <thread>
+#include <iostream>
 #include "infradb/memory/Pool.hpp"
 
 namespace infradb::core {
@@ -21,11 +20,8 @@ execution::VectorBatch Engine::scan_file(const std::string& path) {
     // Memory allocation from our global pool
     auto pool = memory::GlobalMemoryPool::instance().get_resource();
     
-    // Simulate complex parallel scanning (Replace with actual CSV/Parquet logic)
-    // Production note: Use SIMD-accelerated parsers like fast-float or rapidjson
-    std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Simulating I/O
-    
-    const size_t num_rows = 1000000; // Simulated million-row scan result
+    // Placeholder until file scanner lands; avoid artificial stalls in hot path.
+    const size_t num_rows = 1000000;
     execution::VectorBatch batch(num_rows, pool);
     
     auto end_time = std::chrono::high_resolution_clock::now();
