@@ -2,17 +2,36 @@ import axios from 'axios';
 
 const PRODUCTION_API_FALLBACK = 'https://infradb-backend.onrender.com/api/v1';
 
+const normalizeApiBase = (rawBase) => {
+  const trimmed = String(rawBase || '').trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+
+  if (/\/api\/v\d+$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/\/api$/i.test(trimmed)) {
+    return `${trimmed}/v1`;
+  }
+
+  if (/\/api\/v\d+\//i.test(trimmed) || /\/api\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  return `${trimmed}/api/v1`;
+};
+
 const resolveApiBase = () => {
-  const configuredBase = import.meta.env.VITE_API_URL?.trim();
+  const configuredBase = normalizeApiBase(import.meta.env.VITE_API_URL);
   if (configuredBase) {
-    return configuredBase.replace(/\/+$/, '');
+    return configuredBase;
   }
 
   if (import.meta.env.DEV) {
     return 'http://localhost:8000/api/v1';
   }
 
-  return PRODUCTION_API_FALLBACK;
+  return normalizeApiBase(PRODUCTION_API_FALLBACK);
 };
 
 const API_BASE = resolveApiBase();
