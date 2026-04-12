@@ -77,23 +77,35 @@ class ConsoleBootstrapService:
         primary_db = self.base_dir / "db.sqlite3"
         analytics_db = self.base_dir / "user_databases" / "test_db.sqlite3"
 
-        return (
-            SeedConnection(
-                name="Production_DB",
-                engine="SQLITE",
-                database_name="prod_main",
-                file_path=str(primary_db),
-            ),
-            SeedConnection(
-                name="Testing_Env",
-                engine="SQLITE",
-                database_name="qa_env",
-                file_path=str(sample_db),
-            ),
-            SeedConnection(
-                name="Analytics_Warehouse",
-                engine="SQLITE",
-                database_name="analytics",
-                file_path=str(analytics_db if analytics_db.exists() else primary_db),
-            ),
-        )
+        seeds = []
+        if primary_db.exists():
+            seeds.append(
+                SeedConnection(
+                    name="Production_DB",
+                    engine="SQLITE",
+                    database_name="prod_main",
+                    file_path=str(primary_db.resolve()),
+                )
+            )
+
+        if sample_db.exists():
+            seeds.append(
+                SeedConnection(
+                    name="Testing_Env",
+                    engine="SQLITE",
+                    database_name="qa_env",
+                    file_path=str(sample_db.resolve()),
+                )
+            )
+
+        if analytics_db.exists():
+            seeds.append(
+                SeedConnection(
+                    name="Analytics_Warehouse",
+                    engine="SQLITE",
+                    database_name="analytics",
+                    file_path=str(analytics_db.resolve()),
+                )
+            )
+
+        return tuple(seeds)

@@ -13,11 +13,18 @@ from .services import ConsoleBootstrapService
 bootstrap = ConsoleBootstrapService(Path(__file__).resolve().parent.parent)
 
 
+def _resolve_sqlite_path(file_path: str) -> Path:
+    db_path = Path(file_path)
+    if not db_path.is_absolute():
+        db_path = Path(__file__).resolve().parent.parent / file_path
+    return db_path
+
+
 def _sqlite_schema(file_path: str):
     if not file_path:
         return []
 
-    db_path = Path(file_path)
+    db_path = _resolve_sqlite_path(file_path)
     if not db_path.exists():
         raise FileNotFoundError(f"SQLite database not found: {db_path}")
 
@@ -81,9 +88,7 @@ class ConnectionViewSet(viewsets.ModelViewSet):
                     {"ok": False, "error": "SQLite connections require a file_path or database name."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            db_path = Path(file_path)
-            if not db_path.is_absolute():
-                db_path = Path(__file__).resolve().parent.parent / file_path
+            db_path = _resolve_sqlite_path(file_path)
             if not db_path.exists():
                 return Response(
                     {"ok": False, "error": f"SQLite database not found: {db_path}"},

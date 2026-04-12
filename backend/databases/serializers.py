@@ -2,10 +2,15 @@ from rest_framework import serializers
 from .models import Workspace, DatabaseConnection, SchemaMetadata
 
 class DatabaseConnectionSerializer(serializers.ModelSerializer):
+    workspace = serializers.PrimaryKeyRelatedField(queryset=Workspace.objects.all(), write_only=True)
+    workspace_id = serializers.UUIDField(source='workspace.id', read_only=True)
+
     class Meta:
         model = DatabaseConnection
         fields = [
             'id',
+            'workspace',
+            'workspace_id',
             'name',
             'engine',
             'host',
