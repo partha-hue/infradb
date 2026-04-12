@@ -59,3 +59,15 @@ target_compile_options(infradb_engine_benchmark PRIVATE -march=native -O3)
 target_link_libraries(infradb_engine_benchmark
     Threads::Threads
 )
+
+add_executable(infradb_native_ingest_demo
+    ../native/src/core/IngestionDemo.cpp
+    ../native/src/core/NativeIngestion.cpp
+    core/thread_pool.cpp
+)
+
+target_compile_options(infradb_native_ingest_demo PRIVATE -march=native -O3)
+
+target_link_libraries(infradb_native_ingest_demo
+    Threads::Threads
+)
