@@ -135,12 +135,20 @@ class QueryExecutionService:
         }
 
     def _execute_sqlite(self, connection: DatabaseConnection, statement: str):
+        statements = self._split_sql_statements(statement)
+        if not statements:
+            raise QueryExecutionError("SQL statement is empty.")
+        if len(statements) == 1:
+            return self._execute_single_sqlite_statement(connection, statements[0])
+        return self._execute_multi_sqlite_script(connection, statements)
+
+    def _execute_single_sqlite_statement(self, connection: DatabaseConnection, statement: str):
         query_type = statement.split(None, 1)[0].upper()
         truncated = False
 
         with self._connect_sqlite(connection) as db:
+            cursor = db.cursor()
             try:
-                cursor = db.cursor()
                 cursor.execute(statement)
             except sqlite3.Error as exc:
                 raise QueryExecutionError(str(exc)) from exc
@@ -166,6 +174,47 @@ class QueryExecutionService:
             "truncated": truncated,
         }
 
+    def _execute_multi_sqlite_script(self, connection: DatabaseConnection, statements: list[str]):
+        query_type = "MULTI"
+        truncated = False
+        columns = []
+        rows = []
+        rows_affected = 0
+
+        with self._connect_sqlite(connection) as db:
+            cursor = db.cursor()
+            try:
+                db.execute("BEGIN;")
+                for stmt in statements:
+                    sql = stmt.strip()
+                    if not sql:
+                        continue
+
+                    statement_type = sql.split(None, 1)[0].upper()
+                    cursor.execute(sql)
+
+                    if statement_type in READ_QUERY_PREFIXES:
+                        columns = [{"name": item[0], "type": "text"} for item in (cursor.description or [])]
+                        rows = [dict(row) for row in cursor.fetchmany(ROW_PREVIEW_LIMIT + 1)]
+                        if len(rows) > ROW_PREVIEW_LIMIT:
+                            truncated = True
+                            rows = rows[:ROW_PREVIEW_LIMIT]
+                        rows_affected = len(rows)
+                    else:
+                        rows_affected += cursor.rowcount if cursor.rowcount != -1 else 0
+                db.commit()
+            except sqlite3.Error as exc:
+                db.rollback()
+                raise QueryExecutionError(str(exc)) from exc
+
+        return {
+            "query_type": query_type,
+            "columns": columns,
+            "rows": rows,
+            "rows_affected": rows_affected,
+            "truncated": truncated,
+        }
+
     def _connect_sqlite(self, connection: DatabaseConnection):
         if connection.engine != "SQLITE":
             raise QueryExecutionError(f"{connection.engine} execution is not configured in this deployment.")
@@ -174,7 +223,7 @@ class QueryExecutionService:
         if not db_path.exists():
             raise QueryExecutionError(f"SQLite database not found: {db_path}")
 
-        db = sqlite3.connect(db_path)
+        db = sqlite3.connect(db_path, timeout=30, isolation_level=None)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL;")
         db.execute("PRAGMA synchronous=NORMAL;")
@@ -182,12 +231,45 @@ class QueryExecutionService:
         db.execute("PRAGMA foreign_keys=ON;")
         return db
 
+    def _split_sql_statements(self, sql: str):
+        statements = []
+        current = []
+        in_single = False
+        in_double = False
+        escape = False
+
+        for ch in sql:
+            if escape:
+                current.append(ch)
+                escape = False
+                continue
+            if ch == "\\":
+                current.append(ch)
+                escape = True
+                continue
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                current.append(ch)
+                continue
+            if ch == '"' and not in_single:
+                in_double = not in_double
+                current.append(ch)
+                continue
+            if ch == ";" and not in_single and not in_double:
+                statement = "".join(current).strip()
+                if statement:
+                    statements.append(statement)
+                current = []
+                continue
+            current.append(ch)
+
+        leftover = "".join(current).strip()
+        if leftover:
+            statements.append(leftover)
+        return statements
+
     def _normalize_statement(self, sql: str):
         statement = (sql or "").strip()
         if not statement:
             raise QueryExecutionError("SQL statement is empty.")
-
-        trimmed = statement[:-1] if statement.endswith(";") else statement
-        if ";" in trimmed:
-            raise QueryExecutionError("Only a single SQL statement is supported per execution.")
         return statement
