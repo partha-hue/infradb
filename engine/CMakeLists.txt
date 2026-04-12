@@ -60,6 +60,21 @@ target_link_libraries(infradb_engine_benchmark
     Threads::Threads
 )
 
+add_executable(infradb_native_grpc_server
+    ../native/src/core/GRPCServer.cpp
+    ../native/src/core/NativeIngestion.cpp
+    ${hw_proto_srcs}
+    ${hw_grpc_srcs}
+)
+
+target_compile_options(infradb_native_grpc_server PRIVATE -march=native -O3)
+
+target_link_libraries(infradb_native_grpc_server
+    gRPC::grpc++
+    protobuf::libprotobuf
+    Threads::Threads
+)
+
 add_executable(infradb_native_ingest_demo
     ../native/src/core/IngestionDemo.cpp
     ../native/src/core/NativeIngestion.cpp

@@ -4,6 +4,7 @@ package infradb.engine;
 
 service QueryEngine {
   rpc ExecuteQuery (QueryRequest) returns (QueryResponse) {}
+  rpc IngestData (IngestRequest) returns (IngestResponse) {}
   rpc ExplainQuery (QueryRequest) returns (ExplainResponse) {}
 }
 
@@ -11,6 +12,25 @@ message QueryRequest {
   string query = 1;
   string database_id = 2;
   map<string, string> parameters = 3;
+}
+
+message IngestRecord {
+  string symbol = 1;
+  double price = 2;
+  int32 volume = 3;
+  int64 timestamp = 4;
+}
+
+message IngestRequest {
+  repeated IngestRecord records = 1;
+  string destination_file = 2;
+}
+
+message IngestResponse {
+  bool ok = 1;
+  string message = 2;
+  double moving_average = 3;
+  int64 ingested_count = 4;
 }
 
 message QueryResponse {

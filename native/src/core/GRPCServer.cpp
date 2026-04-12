@@ -1,21 +1,27 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstring>
 #include <cstdlib>
 #include <future>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 #include <grpcpp/grpcpp.h>
 #include "engine.grpc.pb.h"
 #include "infradb/core/Engine.hpp"
+#include "infradb/core/NativeIngestion.hpp"
 
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
 using grpc::Status;
 using infradb::engine::ExplainResponse;
+using infradb::engine::IngestRequest;
+using infradb::engine::IngestResponse;
 using infradb::engine::QueryEngine;
 using infradb::engine::QueryRequest;
 using infradb::engine::QueryResponse;
@@ -23,6 +29,22 @@ using infradb::engine::QueryResponse;
 class QueryEngineServiceImpl final : public QueryEngine::Service
 {
     infradb::core::Engine engine;
+    infradb::core::NativeIngestionEngine ingestion_engine;
+    std::once_flag ingestion_init_flag;
+    std::mutex ingestion_mutex;
+    std::string ingestion_path = "native_ingest_data.bin";
+    std::size_t ingestion_capacity = 1'000'000;
+
+    void ensure_ingestion_initialized(const std::string &path)
+    {
+        std::call_once(ingestion_init_flag, [this, &path]()
+                       {
+            std::lock_guard<std::mutex> lock(ingestion_mutex);
+            if (!ingestion_engine.initialize(path.empty() ? ingestion_path : path, ingestion_capacity))
+            {
+                throw std::runtime_error("Failed to initialize native ingestion engine.");
+            } });
+    }
 
     static std::string trim(const std::string &value)
     {
@@ -126,6 +148,45 @@ class QueryEngineServiceImpl final : public QueryEngine::Service
         catch (const std::exception &e)
         {
             response->set_error(e.what());
+        }
+
+        return Status::OK;
+    }
+
+    Status IngestData(ServerContext *context, const IngestRequest *request, IngestResponse *response) override
+    {
+        try
+        {
+            ensure_ingestion_initialized(request->destination_file());
+            std::size_t count = 0;
+            for (const auto &record : request->records())
+            {
+                infradb::core::IngestRecord ingest_record;
+                std::memset(&ingest_record, 0, sizeof(ingest_record));
+                const auto &symbol = record.symbol();
+                std::memcpy(ingest_record.symbol, symbol.data(), std::min(symbol.size(), sizeof(ingest_record.symbol) - 1));
+                ingest_record.price = record.price();
+                ingest_record.volume = record.volume();
+                ingest_record.timestamp = record.timestamp();
+
+                while (!ingestion_engine.enqueue(ingest_record))
+                {
+                    std::this_thread::yield();
+                }
+                ++count;
+            }
+
+            response->set_ok(true);
+            response->set_message("Ingested " + std::to_string(count) + " records.");
+            response->set_moving_average(ingestion_engine.compute_price_moving_average());
+            response->set_ingested_count(static_cast<int64_t>(ingestion_engine.records_ingested()));
+        }
+        catch (const std::exception &e)
+        {
+            response->set_ok(false);
+            response->set_message(e.what());
+            response->set_moving_average(0.0);
+            response->set_ingested_count(0);
         }
 
         return Status::OK;
