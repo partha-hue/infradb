@@ -61,11 +61,15 @@ class QueryExecutionService:
         job.finished_at = timezone.now()
         job.save(update_fields=["status", "execution_time_ms", "rows_affected", "finished_at"])
 
+        performance = self._performance_grade(duration_ms)
+
         return {
             "job_id": str(job.id),
             "status": job.status,
             "results": payload["rows"],
             "columns": payload["columns"],
+            "formatted_results": self._format_table_results(payload["columns"], payload["rows"]),
+            "performance": performance,
             "rows_returned": len(payload["rows"]),
             "rows_affected": payload["rows_affected"],
             "execution_time_ms": duration_ms,
@@ -182,27 +186,40 @@ class QueryExecutionService:
         rows_affected = 0
 
         with self._connect_sqlite(connection) as db:
-            cursor = db.cursor()
             try:
-                db.execute("BEGIN;")
-                for stmt in statements:
-                    sql = stmt.strip()
-                    if not sql:
-                        continue
+                if len(statements) > 1 and statements[-1].split(None, 1)[0].upper() in READ_QUERY_PREFIXES:
+                    pre_script = ";\n".join(stmt.strip() for stmt in statements[:-1] if stmt.strip()) + ";"
+                    if pre_script.strip():
+                        db.executescript("BEGIN;\n" + pre_script + "\nCOMMIT;")
+                    cursor = db.cursor()
+                    cursor.execute(statements[-1].strip())
+                    columns = [{"name": item[0], "type": "text"} for item in (cursor.description or [])]
+                    rows = [dict(row) for row in cursor.fetchmany(ROW_PREVIEW_LIMIT + 1)]
+                    if len(rows) > ROW_PREVIEW_LIMIT:
+                        truncated = True
+                        rows = rows[:ROW_PREVIEW_LIMIT]
+                    rows_affected = len(rows)
+                else:
+                    cursor = db.cursor()
+                    db.execute("BEGIN;")
+                    for stmt in statements:
+                        sql = stmt.strip()
+                        if not sql:
+                            continue
 
-                    statement_type = sql.split(None, 1)[0].upper()
-                    cursor.execute(sql)
+                        statement_type = sql.split(None, 1)[0].upper()
+                        cursor.execute(sql)
 
-                    if statement_type in READ_QUERY_PREFIXES:
-                        columns = [{"name": item[0], "type": "text"} for item in (cursor.description or [])]
-                        rows = [dict(row) for row in cursor.fetchmany(ROW_PREVIEW_LIMIT + 1)]
-                        if len(rows) > ROW_PREVIEW_LIMIT:
-                            truncated = True
-                            rows = rows[:ROW_PREVIEW_LIMIT]
-                        rows_affected = len(rows)
-                    else:
-                        rows_affected += cursor.rowcount if cursor.rowcount != -1 else 0
-                db.commit()
+                        if statement_type in READ_QUERY_PREFIXES:
+                            columns = [{"name": item[0], "type": "text"} for item in (cursor.description or [])]
+                            rows = [dict(row) for row in cursor.fetchmany(ROW_PREVIEW_LIMIT + 1)]
+                            if len(rows) > ROW_PREVIEW_LIMIT:
+                                truncated = True
+                                rows = rows[:ROW_PREVIEW_LIMIT]
+                            rows_affected = len(rows)
+                        else:
+                            rows_affected += cursor.rowcount if cursor.rowcount != -1 else 0
+                    db.commit()
             except sqlite3.Error as exc:
                 db.rollback()
                 raise QueryExecutionError(str(exc)) from exc
@@ -228,8 +245,47 @@ class QueryExecutionService:
         db.execute("PRAGMA journal_mode=WAL;")
         db.execute("PRAGMA synchronous=NORMAL;")
         db.execute("PRAGMA temp_store=MEMORY;")
-        db.execute("PRAGMA foreign_keys=ON;")
+        db.execute("PRAGMA foreign_keys=OFF;")
+        db.execute("PRAGMA cache_size=-20000;")
+        db.execute("PRAGMA mmap_size=30000000000;")
+        db.execute("PRAGMA locking_mode=EXCLUSIVE;")
+        db.execute("PRAGMA busy_timeout=30000;")
         return db
+
+    def _format_table_results(self, columns, rows, max_rows=20):
+        if not columns or not rows:
+            return ""
+
+        headers = [col["name"] for col in columns]
+        display_rows = [headers] + [
+            [str(row.get(name, "")) for name in headers]
+            for row in rows[:max_rows]
+        ]
+
+        widths = [max(len(cell) for cell in column) for column in zip(*display_rows)]
+        sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
+
+        def render_row(row_cells):
+            return "| " + " | ".join(cell.ljust(width) for cell, width in zip(row_cells, widths)) + " |"
+
+        table_lines = [sep, render_row(headers), sep]
+        for row in display_rows[1:]:
+            table_lines.append(render_row(row))
+        table_lines.append(sep)
+
+        if len(rows) > max_rows:
+            table_lines.append(f"... showing first {max_rows} rows of {len(rows)} total")
+
+        return "\n".join(table_lines)
+
+    def _performance_grade(self, execution_time_ms: float):
+        if execution_time_ms < 500:
+            return {"grade": "Elite", "recommendation": "Your native/ SIMD kernels are likely working."}
+        if execution_time_ms < 2000:
+            return {"grade": "Professional", "recommendation": "Standard SQLite speed. Good for general SaaS."}
+        if execution_time_ms < 5000:
+            return {"grade": "Suboptimal", "recommendation": "Consider query indexing or reducing disk I/O."}
+        return {"grade": "Bottlenecked", "recommendation": "You likely have Disk I/O or locking issues in the kernel."}
 
     def _split_sql_statements(self, sql: str):
         statements = []
