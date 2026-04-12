@@ -7,6 +7,7 @@
 #include <thread>
 #include <vector>
 #include <memory>
+#include "infradb/concurrency/LockFreeQueue.hpp"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -115,7 +116,7 @@ namespace infradb::core
                 static double moving_average_avx512(const float *prices, std::size_t count) noexcept;
 
                 MemoryMappedFile mmap_file_;
-                SpscQueue<1024> queue_;
+                infradb::concurrency::LockFreeQueue<IngestRecord, 1024> queue_;
                 std::thread storage_thread_;
                 std::atomic<bool> running_ = false;
                 std::atomic<std::size_t> write_offset_ = 0;
