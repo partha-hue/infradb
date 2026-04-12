@@ -47,3 +47,15 @@ target_link_libraries(infradb_engine
 )
 
 target_compile_options(infradb_engine PRIVATE -march=native -O3)
+
+add_executable(infradb_engine_benchmark
+    benchmark.cpp
+    core/query_executor.cpp
+    core/thread_pool.cpp
+)
+
+target_compile_options(infradb_engine_benchmark PRIVATE -march=native -O3)
+
+target_link_libraries(infradb_engine_benchmark
+    Threads::Threads
+)
