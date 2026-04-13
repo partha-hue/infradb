@@ -28,6 +28,13 @@ using infradb::engine::QueryResponse;
 
 class QueryEngineServiceImpl final : public QueryEngine::Service
 {
+public:
+    QueryEngineServiceImpl()
+    {
+        engine.prewarm();
+    }
+
+private:
     infradb::core::Engine engine;
     infradb::core::NativeIngestionEngine ingestion_engine;
     std::once_flag ingestion_init_flag;

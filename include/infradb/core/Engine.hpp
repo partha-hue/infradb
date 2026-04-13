@@ -29,6 +29,11 @@ namespace infradb::core
         execution::VectorBatch execute_sql(const std::string &sql);
 
         /**
+         * Pre-warm the engine to reduce first-query latency.
+         */
+        void prewarm();
+
+        /**
          * Advanced SQL Optimization and physical plan generation.
          */
         void optimize_plan(const std::string &logical_plan);

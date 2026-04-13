@@ -246,8 +246,8 @@ class QueryExecutionService:
         db.execute("PRAGMA synchronous=NORMAL;")
         db.execute("PRAGMA temp_store=MEMORY;")
         db.execute("PRAGMA foreign_keys=OFF;")
-        db.execute("PRAGMA cache_size=-20000;")
-        db.execute("PRAGMA mmap_size=30000000000;")
+        db.execute("PRAGMA cache_size=-64000;")
+        db.execute("PRAGMA mmap_size=268435456;")
         db.execute("PRAGMA locking_mode=EXCLUSIVE;")
         db.execute("PRAGMA busy_timeout=30000;")
         return db

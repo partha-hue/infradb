@@ -3,6 +3,13 @@ project(InfraDBEngine LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    set(LTO_FLAGS -flto)
+    add_compile_options(${LTO_FLAGS})
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${LTO_FLAGS}")
+endif()
 
 # Find gRPC and Protobuf
 find_package(gRPC CONFIG REQUIRED)

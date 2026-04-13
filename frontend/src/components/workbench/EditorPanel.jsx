@@ -179,31 +179,29 @@ const ResultTable = ({ data }) => {
 };
 
 const ResultSummary = ({ results, metrics, statementCount }) => {
-  const statusItems = [
-    { label: results.query_type || 'QUERY', value: results.query_type || 'UNKNOWN' },
-    { label: 'Returned', value: `${results.rows_returned ?? results.results?.length ?? 0} rows` },
-    { label: 'Affected', value: `${results.rows_affected ?? 0}` },
-    { label: 'Run time', value: `${Number(results.execution_time_ms || 0).toFixed(3)} ms` },
+  const statusCards = [
+    { label: 'QUERY', value: results.query_type || 'UNKNOWN' },
+    { label: 'RETURNED', value: `${results.rows_returned ?? results.results?.length ?? 0} rows` },
+    { label: 'AFFECTED', value: `${results.rows_affected ?? 0}` },
+    { label: 'RUN TIME', value: `${Number(results.execution_time_ms || 0).toFixed(3)} ms` },
   ];
 
   return (
     <div className="border-b border-border/70 bg-[#0c0f14] p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {statusItems.map((item) => (
-            <div key={item.label} className="rounded-xl bg-slate-950/70 border border-border px-3 py-3">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-1">{item.label}</p>
-              <p className="text-sm font-semibold text-slate-100">{item.value}</p>
-            </div>
-          ))}
-        </div>
+      <div className="grid gap-3 lg:grid-cols-4 mb-3">
+        {statusCards.map((item) => (
+          <div key={item.label} className="rounded-2xl bg-slate-950/80 border border-border px-4 py-4 shadow-inner shadow-black/10">
+            <p className="text-[10px] uppercase tracking-[0.36em] text-muted-foreground mb-2">{item.label}</p>
+            <p className="text-lg font-semibold text-slate-100">{item.value}</p>
+          </div>
+        ))}
+      </div>
 
-        <div className="flex flex-wrap gap-2 items-center text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
-          <span className="rounded-full bg-emerald-500/10 text-emerald-300 px-2.5 py-1">{metrics.nativeAcceleration ? 'Native Acceleration' : 'SQLite Engine'}</span>
-          <span className="rounded-full bg-brand/10 text-brand px-2.5 py-1">{metrics.engineMode?.toUpperCase()}</span>
-          <span className="rounded-full bg-slate-700/70 text-slate-100 px-2.5 py-1">{statementCount} statement{statementCount === 1 ? '' : 's'}</span>
-          {results.truncated && <span className="rounded-full bg-amber-500/10 text-amber-300 px-2.5 py-1">Truncated results</span>}
-        </div>
+      <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+        <span className="rounded-full bg-slate-800/90 border border-border px-3 py-1 text-slate-100">{metrics.nativeAcceleration ? 'Native Acceleration' : 'SQLite Engine'}</span>
+        <span className="rounded-full bg-brand/10 text-brand border border-brand/25 px-3 py-1">{metrics.engineMode?.toUpperCase()}</span>
+        <span className="rounded-full bg-slate-800/90 border border-border px-3 py-1 text-slate-100">{statementCount} statement{statementCount === 1 ? '' : 's'}</span>
+        {results.truncated && <span className="rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 px-3 py-1">Truncated results</span>}
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
