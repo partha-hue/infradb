@@ -108,9 +108,8 @@ const QueryHistory = () => {
                 onClick={() => restoreHistoryQuery(item.sql)}
               >
                 <td className="px-4 py-3">
-                  <span className={`px-1.5 py-0.5 rounded-[2px] text-[9px] font-bold ${
-                    item.status === 'SUCCESS' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
-                  }`}>
+                  <span className={`px-1.5 py-0.5 rounded-[2px] text-[9px] font-bold ${item.status === 'SUCCESS' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
+                    }`}>
                     {item.status}
                   </span>
                 </td>
@@ -127,8 +126,18 @@ const QueryHistory = () => {
 };
 
 const ResultTable = ({ data }) => {
-  if (!data?.results || data.results.length === 0) return null;
-  const columns = Object.keys(data.results[0]);
+  if (!data?.columns?.length) return null;
+  const columns = data.columns.map((col) => col.name);
+
+  const formatCell = (value) => {
+    if (value === null || value === undefined) {
+      return '-';
+    }
+    if (typeof value === 'object') {
+      return JSON.stringify(value);
+    }
+    return String(value);
+  };
 
   return (
     <div className="flex-1 overflow-auto border-t border-border bg-background">
@@ -136,41 +145,114 @@ const ResultTable = ({ data }) => {
         <thead className="sticky top-0 bg-sidebar border-b border-border z-10 shadow-sm">
           <tr>
             {columns.map((column) => (
-              <th key={column} className="px-4 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-wider border-r border-border">
-                <div className="flex items-center gap-2 group">
-                  {column}
+              <th key={column} className="px-4 py-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.25em] border-r border-border bg-[#0d1117]">
+                <div className="flex items-center justify-between gap-2">
+                  <span>{column}</span>
                   <Filter className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer" />
                 </div>
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="font-mono text-[11px]">
-          {data.results.map((row, index) => (
-            <tr key={index} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-              {columns.map((column) => (
-                <td key={column} className="px-4 py-1.5 border-r border-border/50 text-slate-300">
-                  {typeof row[column] === 'object' ? JSON.stringify(row[column]) : String(row[column])}
-                </td>
-              ))}
+        <tbody className="font-mono text-[12px] text-slate-300">
+          {data.results.length ? (
+            data.results.map((row, index) => (
+              <tr key={index} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+                {columns.map((column) => (
+                  <td key={column} className="px-4 py-3 border-r border-border/50 align-top break-words max-w-[14rem]">
+                    {formatCell(row[column])}
+                  </td>
+                ))}
+              </tr>
+            ))
+          ) : (
+            <tr className="border-b border-border/50">
+              <td colSpan={columns.length} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                No rows returned for this query.
+              </td>
             </tr>
-          ))}
+          )}
         </tbody>
       </table>
     </div>
   );
 };
 
+const ResultSummary = ({ results, metrics, statementCount }) => {
+  const statusItems = [
+    { label: results.query_type || 'QUERY', value: results.query_type || 'UNKNOWN' },
+    { label: 'Returned', value: `${results.rows_returned ?? results.results?.length ?? 0} rows` },
+    { label: 'Affected', value: `${results.rows_affected ?? 0}` },
+    { label: 'Run time', value: `${Number(results.execution_time_ms || 0).toFixed(3)} ms` },
+  ];
+
+  return (
+    <div className="border-b border-border/70 bg-[#0c0f14] p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {statusItems.map((item) => (
+            <div key={item.label} className="rounded-xl bg-slate-950/70 border border-border px-3 py-3">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-1">{item.label}</p>
+              <p className="text-sm font-semibold text-slate-100">{item.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-2 items-center text-[10px] uppercase tracking-[0.25em] text-muted-foreground">
+          <span className="rounded-full bg-emerald-500/10 text-emerald-300 px-2.5 py-1">{metrics.nativeAcceleration ? 'Native Acceleration' : 'SQLite Engine'}</span>
+          <span className="rounded-full bg-brand/10 text-brand px-2.5 py-1">{metrics.engineMode?.toUpperCase()}</span>
+          <span className="rounded-full bg-slate-700/70 text-slate-100 px-2.5 py-1">{statementCount} statement{statementCount === 1 ? '' : 's'}</span>
+          {results.truncated && <span className="rounded-full bg-amber-500/10 text-amber-300 px-2.5 py-1">Truncated results</span>}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {results.performance?.grade && (
+          <div className="rounded-xl bg-slate-950/60 border border-border p-3">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-1">Performance Grade</p>
+            <p className="text-sm font-semibold text-slate-100">{results.performance.grade}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">{results.performance.recommendation}</p>
+          </div>
+        )}
+        {metrics.scanEstimate != null && (
+          <div className="rounded-xl bg-slate-950/60 border border-border p-3">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-1">Scan Estimate</p>
+            <p className="text-sm font-semibold text-slate-100">{metrics.scanEstimate.toLocaleString()} rows</p>
+          </div>
+        )}
+        {results.engine?.native?.available != null && (
+          <div className="rounded-xl bg-slate-950/60 border border-border p-3">
+            <p className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground mb-1">Native Metrics</p>
+            <p className="text-sm font-semibold text-slate-100">{results.engine.native.available ? 'Available' : 'Unavailable'}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const countStatements = (sql) => {
+  if (!sql) return 0;
+  return sql
+    .split(';')
+    .map((stmt) => stmt.trim())
+    .filter(Boolean).length;
+};
+
 export const EditorPanel = () => {
   const { activeTab, updateSQL, executeSQL, results, loading, error, activeView, activeInstance, metrics } = useEditor();
   const downloadResults = () => {
-    if (!results?.results?.length) return;
+    if (!results) return;
 
-    const columns = Object.keys(results.results[0]);
+    const columns = results.columns?.map((col) => col.name) ?? (results.results?.length ? Object.keys(results.results[0]) : []);
+    if (!columns.length) return;
+
     const escapeCsv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const csv = [
       columns.map(escapeCsv).join(','),
-      ...results.results.map((row) => columns.map((column) => escapeCsv(typeof row[column] === 'object' ? JSON.stringify(row[column]) : row[column])).join(',')),
+      ...(results.results || []).map((row) =>
+        columns.map((column) => escapeCsv(typeof row[column] === 'object' ? JSON.stringify(row[column]) : row[column])).join(','),
+      ),
     ].join('\n');
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -290,8 +372,15 @@ export const EditorPanel = () => {
                     {error}
                   </div>
                 </div>
-              ) : results?.results?.length ? (
-                <ResultTable data={results} />
+              ) : results?.columns?.length ? (
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <ResultSummary
+                    results={results}
+                    metrics={metrics}
+                    statementCount={countStatements(activeTab?.sql)}
+                  />
+                  <ResultTable data={results} />
+                </div>
               ) : results ? (
                 <EmptyState
                   icon={BarChart3}
